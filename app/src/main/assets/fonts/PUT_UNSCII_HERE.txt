@@ -1,0 +1,11 @@
+Put the UNSCII files in this folder with these exact names, then press Run.
+unscii-16.ttf is the one that matters; the others are optional extra faces.
+
+  unscii-16.ttf         8x16, the default
+  unscii-8-tall.ttf     8x16, the 8x8 face stretched tall
+  unscii-8.ttf          8x8
+  unscii-8-thin.ttf     8x8, thin strokes
+  unscii-8-mcr.ttf      8x8, machine-readable look
+  unscii-8-fantasy.ttf  8x8, decorative
+
+All public domain, from viznut.fi/unscii
