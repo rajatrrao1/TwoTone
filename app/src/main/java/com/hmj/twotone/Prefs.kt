@@ -31,6 +31,13 @@ class Prefs(context: Context) {
     private val _place = mutableStateOf(loadPlace())
     private val _clockApp = mutableStateOf(sp.getString(KEY_CLOCK_APP, null))
     private val _chargingClock = mutableStateOf(sp.getInt(KEY_CHARGING_CLOCK, 1))
+    private val _hiddenApps = mutableStateOf(sp.getStringSet("hiddenApps", emptySet())!!.toSet())
+    private val _appNames = mutableStateOf(
+        try {
+            val o = org.json.JSONObject(sp.getString("appNames", "{}") ?: "{}")
+            o.keys().asSequence().associateWith { o.getString(it) }
+        } catch (e: Exception) { emptyMap() }
+    )
     private val _ownStatusBar = mutableStateOf(sp.getBoolean(KEY_OWN_STATUS_BAR, true))
     private val _statusItems = mutableStateOf(
         (sp.getStringSet(KEY_STATUS_ITEMS, null)?.toSet() ?: setOf("battery", "bluetooth", "wifi", "mobile", "sound", "alarm"))
@@ -87,6 +94,21 @@ class Prefs(context: Context) {
         _clockApp.value = key
         sp.edit().apply { if (key == null) remove(KEY_CLOCK_APP) else putString(KEY_CLOCK_APP, key) }.apply()
     }
+
+    /** Apps left out of the apps list (they still open from search or the home list). */
+    val hiddenApps: Set<String> get() = _hiddenApps.value
+    fun setHidden(key: String, hide: Boolean) {
+        _hiddenApps.value = if (hide) hiddenApps + key else hiddenApps - key
+        sp.edit().putStringSet("hiddenApps", _hiddenApps.value).apply()
+    }
+
+    /** Your own names for apps, by app key. */
+    val appNames: Map<String, String> get() = _appNames.value
+    fun rename(key: String, name: String?) {
+        _appNames.value = if (name.isNullOrBlank()) appNames - key else appNames + (key to name.trim())
+        sp.edit().putString("appNames", org.json.JSONObject(_appNames.value).toString()).apply()
+    }
+    fun nameOf(app: AppEntry): String = appNames[app.key] ?: app.label
 
     /** Charging page: 0 = off, 1 = at night (21:00–07:00), 2 = whenever charging. */
     val chargingClock: Int get() = _chargingClock.value

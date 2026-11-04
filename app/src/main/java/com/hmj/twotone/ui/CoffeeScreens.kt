@@ -50,17 +50,19 @@ fun CoffeeScreen(
     onNewBrew: () -> Unit,
     onBeans: () -> Unit,
     onBrew: (Long) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onUseCoffeeApp: () -> Unit = {}
 ) {
     val ctx = LocalContext.current
     val fmt = DateTimeFormatter.ofPattern(if (DateFormat.is24HourFormat(ctx)) "d MMM HH:mm" else "d MMM h:mm a", Locale.getDefault())
-    val rows: List<Long?> = listOf<Long?>(-1L, -2L) + store.brews.map { it.id }
+    val rows: List<Long?> = listOf<Long?>(-1L, -2L, -3L) + store.brews.map { it.id }
     PageColumn {
         PageHeader("coffee", onBack)
         PagedList(rows, Modifier.weight(1f), resetKey = store.brews.size) { id ->
             when (id) {
                 -1L -> ListRow("log a brew", bold = true, onPress = onNewBrew)
                 -2L -> ListRow("beans", trailing = "${store.beans.size} ▸", onPress = onBeans)
+                -3L -> ListRow("use my coffee app's beans", onPress = onUseCoffeeApp)
                 else -> {
                     val b = store.brew(id ?: 0L)
                     if (b != null) {

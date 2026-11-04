@@ -1,5 +1,26 @@
 # Changes
 
+## 1.3
+- Coffee: can show your Coffee app's beans, read from the coffee-beans.json it keeps in
+  its backup folder (coffee > use my coffee app's beans). Adding and editing open Coffee.
+- Notes: point "notes kept in" at oboegaki's folder to share the same Markdown notes.
+- Backup (Settings > backup): everything in one .zip in a folder you choose, now or
+  every day (newest seven kept); put a backup back, and the launcher starts again.
+- Apps: hold an app to rename it or hide it from the list. Your names are used on the
+  home list and in search. Tap the bottom line of apps to show hidden ones.
+- Search everything: swipe down on the first page of the home list. Apps, sections,
+  contacts, notes, songs, books and saved news.
+- Nothing updates while the screen is off: clocks, status checks and player timers stop,
+  and start again when the launcher is back.
+- The now-playing bar shows while something plays and for ten minutes after a pause.
+
+## 1.2
+- Home: whatever another app is playing (Spotify, podcasts, a browser…) shows in the
+  now-playing bar, with its cover dithered, the time left, and previous / play-pause /
+  next. Tap the words to open that app; swipe the bar away to pause it and hide it until
+  something new plays. Uses the same Notification access as the bell. Two Tone's own
+  music still comes first.
+
 ## 1.1
 - Music: page titles no longer get cut off ("now playing"); pages no longer change size
   when Android's status bar hides or shows.

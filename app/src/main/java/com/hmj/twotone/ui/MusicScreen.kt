@@ -304,8 +304,8 @@ private fun NowPlaying(scrubbing: Boolean = false, scrubPos: Long = 0L) {
     val playing = Music.isPlaying
     var pos by remember { mutableLongStateOf(0L) }
     // Every two seconds is enough for E-ink and saves battery.
-    LaunchedEffect(t, playing) {
-        while (true) {
+    LaunchedEffect(t, playing, com.hmj.twotone.Visible.on) {
+        while (com.hmj.twotone.Visible.on) {
             pos = Music.positionMs()
             if (!playing) break
             delay(2_000)

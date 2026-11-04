@@ -121,6 +121,9 @@ sealed interface Page {
     data class Article(val link: String, val storyId: String? = null, val savedId: String? = null) : Page
     data object StatusPanel : Page
     data object AddToHome : Page
+    data object Search : Page
+    data object Backup : Page
+    data object KohiLink : Page
     data object Notifications : Page
     data object StatusBarSettings : Page
     data object Eink : Page
@@ -261,14 +264,14 @@ class MainActivity : ComponentActivity() {
                     BackHandler { pop() }
                     // Re-checked every minute so "at night" starts and ends on time.
                     var minuteTick by androidx.compose.runtime.remember { mutableIntStateOf(0) }
-                    LaunchedEffect(Unit) { while (true) { delay(60_000L); minuteTick++ } }
+                    LaunchedEffect(com.hmj.twotone.Visible.on) { while (com.hmj.twotone.Visible.on) { delay(60_000L); minuteTick++ } }
                     val showCharging = minuteTick >= 0 && chargingPageWanted()
                     LaunchedEffect(showCharging) {
                         if (showCharging) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
                     LaunchedEffect(prefs.ownStatusBar) { applyStatusBar() }
-                    LaunchedEffect(Unit) { while (true) { updateStatus(); delay(30_000L) } }
+                    LaunchedEffect(com.hmj.twotone.Visible.on) { while (com.hmj.twotone.Visible.on) { updateStatus(); delay(30_000L) } }
                     // Clean refreshes asked for by page turns
                     com.hmj.twotone.Ghosting.everyTurns = when (prefs.refreshMode) { 2 -> 10; 3 -> 5; else -> 0 }
                     val ghostRequests = com.hmj.twotone.Ghosting.requests.intValue
@@ -322,12 +325,21 @@ class MainActivity : ComponentActivity() {
                 onClockLongPress = { refreshPhase.intValue = 1 },
                 onWeather = { openSection(Section.WEATHER) },
                 onCalendar = { openSection(Section.CALENDAR) },
-                onMusic = { openSection(Section.MUSIC) }
+                onMusic = { openSection(Section.MUSIC) },
+                onSearch = { push(Page.Search) }
             )
+
+            Page.Search -> com.hmj.twotone.ui.SearchScreen(search = ::searchEverything, onBack = ::pop)
+
+            Page.Backup -> com.hmj.twotone.ui.BackupScreen(onBack = ::pop)
 
             Page.Apps -> AppsScreen(
                 apps = apps.value,
                 pinned = prefs.pinned,
+                hidden = prefs.hiddenApps,
+                nameOf = { prefs.nameOf(it) },
+                onRename = { a, n -> prefs.rename(a.key, n) },
+                onHide = { a, h -> prefs.setHidden(a.key, h) },
                 onLaunch = ::launchApp,
                 onTogglePin = { prefs.togglePinned(it.key) },
                 onAppInfo = {
@@ -343,6 +355,7 @@ class MainActivity : ComponentActivity() {
                 onSections = { push(Page.Sections) },
                 onMusicSettings = { push(Page.MusicSettings) },
                 onStatusBar = { push(Page.StatusBarSettings) },
+                onBackup = { push(Page.Backup) },
                 onEink = { push(Page.Eink) },
                 onFonts = { push(Page.Fonts(it)) },
                 onWeatherPlace = { push(Page.WeatherPlace) },
@@ -399,12 +412,18 @@ class MainActivity : ComponentActivity() {
 
             is Page.Fonts -> FontsScreen(prefs, onBack = ::pop)
 
-            Page.Coffee -> CoffeeScreen(
+            Page.KohiLink -> com.hmj.twotone.ui.KohiLinkScreen(onLinked = { pop(); stack.removeAll { it == Page.Coffee }; push(Page.Coffee) }, onBack = ::pop)
+
+            Page.Coffee -> if (com.hmj.twotone.coffee.KohiLink.linked(this)) com.hmj.twotone.ui.KohiScreen(
+                onBack = ::pop,
+                onUnlinked = { pop(); push(Page.Coffee) }
+            ) else CoffeeScreen(
                 store = coffee,
                 onNewBrew = { push(Page.NewBrew) },
                 onBeans = { push(Page.Beans) },
                 onBrew = { push(Page.BrewDetail(it)) },
-                onBack = ::pop
+                onBack = ::pop,
+                onUseCoffeeApp = { push(Page.KohiLink) }
             )
 
             Page.Beans -> BeansScreen(
@@ -568,13 +587,47 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    /** Search: every kind of thing, best matches (names starting with it) first. */
+    private suspend fun searchEverything(q: String): List<com.hmj.twotone.ui.Found> {
+        val out = mutableListOf<com.hmj.twotone.ui.Found>()
+        fun rank(s: String) = if (s.startsWith(q, true)) 0 else 1
+        apps.value.map { it to prefs.nameOf(it) }
+            .filter { (a, n) -> n.contains(q, true) || a.label.contains(q, true) }
+            .sortedBy { rank(it.second) }.take(12)
+            .forEach { (a, n) -> out += com.hmj.twotone.ui.Found("app", n.lowercase()) { launchApp(a) } }
+        Section.entries.filter { it.label.contains(q, true) }
+            .forEach { s -> out += com.hmj.twotone.ui.Found("section", s.label) { openSection(s) } }
+        com.hmj.twotone.ui.searchContacts(this, q).forEach { (name, number) ->
+            out += com.hmj.twotone.ui.Found("contact", name.lowercase()) {
+                openIntent(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", number, null)))
+            }
+        }
+        if (notes.notes.isEmpty()) try { notes.reload() } catch (e: Exception) { }
+        notes.notes.filter { it.title.contains(q, true) || it.text.contains(q, true) }
+            .sortedBy { rank(it.title) }.take(15)
+            .forEach { n -> out += com.hmj.twotone.ui.Found(if (n.isList) "list" else "note", n.title) { push(Page.Notes); push(Page.NoteEdit(n.path)) } }
+        com.hmj.twotone.music.Music.tracks.filter { it.title.contains(q, true) || it.artist.contains(q, true) || it.album.contains(q, true) }
+            .take(15).forEachIndexed { _, t ->
+                out += com.hmj.twotone.ui.Found("song", "${t.title.lowercase()} · ${t.artist.lowercase()}") {
+                    com.hmj.twotone.music.Music.play(this, listOf(t), 0); push(Page.Music)
+                }
+            }
+        com.hmj.twotone.books.Library.load(this)
+        com.hmj.twotone.books.Library.books.filter { it.title.contains(q, true) || it.author.contains(q, true) }
+            .forEach { b -> out += com.hmj.twotone.ui.Found("book", b.title.lowercase()) { push(Page.Books); push(Page.Reader(b.id)) } }
+        com.hmj.twotone.news.News.load(this)
+        com.hmj.twotone.news.News.saved.filter { it.title.contains(q, true) }.take(10)
+            .forEach { a -> out += com.hmj.twotone.ui.Found("saved story", a.title) { push(Page.Article(a.link, savedId = a.id)) } }
+        return out
+    }
+
     private fun homeRows(): List<HomeRow> {
         val byKey = apps.value.associateBy { it.key }
         val rows = prefs.pinned.mapNotNull { k ->
             val s = Section.fromKey(k)
             when {
                 s != null -> HomeRow(k, s.label) { openSection(s) }
-                byKey[k] != null -> byKey.getValue(k).let { a -> HomeRow(k, a.label.lowercase()) { launchApp(a) } }
+                byKey[k] != null -> byKey.getValue(k).let { a -> HomeRow(k, prefs.nameOf(a).lowercase()) { launchApp(a) } }
                 else -> null
             }
         }
@@ -583,7 +636,7 @@ class MainActivity : ComponentActivity() {
 
     private fun labelOf(key: String): String =
         Section.fromKey(key)?.label
-            ?: apps.value.firstOrNull { it.key == key }?.label?.lowercase()
+            ?: apps.value.firstOrNull { it.key == key }?.let { prefs.nameOf(it).lowercase() }
             ?: "(app not installed)"
 
     private fun handlerName(s: Section): String {
@@ -595,10 +648,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        Visible.on = true
         registerReceiver(batteryReceiver, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
     }
 
     override fun onStop() {
+        Visible.on = false
         try { unregisterReceiver(batteryReceiver) } catch (e: Exception) { }
         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onStop()
@@ -618,6 +673,8 @@ class MainActivity : ComponentActivity() {
         }
         refreshWeather(force = false)
         refreshHomeEvents()
+        com.hmj.twotone.media.OtherPlayers.start(this)
+        lifecycleScope.launch(Dispatchers.IO) { com.hmj.twotone.backup.Backup.dailyIfDue(this@MainActivity) }
     }
 
     /** Pressing the home button always lands on the home page. */

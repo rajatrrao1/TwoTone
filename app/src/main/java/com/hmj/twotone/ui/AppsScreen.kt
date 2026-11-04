@@ -2,6 +2,7 @@ package com.hmj.twotone.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -34,6 +35,10 @@ import com.hmj.twotone.AppEntry
 fun AppsScreen(
     apps: List<AppEntry>,
     pinned: List<String>,
+    hidden: Set<String>,
+    nameOf: (AppEntry) -> String,
+    onRename: (AppEntry, String?) -> Unit,
+    onHide: (AppEntry, Boolean) -> Unit,
     onLaunch: (AppEntry) -> Unit,
     onTogglePin: (AppEntry) -> Unit,
     onAppInfo: (AppEntry) -> Unit,
@@ -44,13 +49,41 @@ fun AppsScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var optionsFor by remember { mutableStateOf<AppEntry?>(null) }
 
+    var renaming by remember { mutableStateOf<AppEntry?>(null) }
+    var showHidden by rememberSaveable { mutableStateOf(false) }
+
+    val toRename = renaming
+    if (toRename != null) {
+        BackHandler { renaming = null }
+        var name by remember(toRename.key) { mutableStateOf(nameOf(toRename)) }
+        PageColumn {
+            PageHeader("rename", onBack = { renaming = null })
+            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                BasicText("name: ", style = textStyle(18f, bold = true), maxLines = 1, softWrap = false)
+                BasicTextField(
+                    value = name, onValueChange = { name = it.replace("\n", "") }, singleLine = true,
+                    textStyle = textStyle(18f), cursorBrush = SolidColor(palette.ink), modifier = Modifier.weight(1f)
+                )
+            }
+            SolidRule()
+            ListRow("save", bold = true, trailing = "") { onRename(toRename, name); renaming = null }
+            ListRow("use its own name", trailing = "[${toRename.label.lowercase()}]") { onRename(toRename, null); renaming = null }
+            Hint("The new name is used on the home list, in apps and in search.")
+        }
+        return
+    }
+
     val target = optionsFor
     if (target != null) {
         BackHandler { optionsFor = null }
         PageColumn {
-            PageHeader(target.label.lowercase(), onBack = { optionsFor = null })
+            PageHeader(nameOf(target).lowercase(), onBack = { optionsFor = null })
             ListRow(if (target.key in pinned) "remove from home" else "add to home", trailing = "") {
                 onTogglePin(target); optionsFor = null
+            }
+            ListRow("rename") { renaming = target; optionsFor = null }
+            ListRow(if (target.key in hidden) "show in apps again" else "hide from apps", trailing = "") {
+                onHide(target, target.key !in hidden); optionsFor = null
             }
             ListRow("app info") { onAppInfo(target); optionsFor = null }
             ListRow("uninstall") { onUninstall(target); optionsFor = null }
@@ -58,9 +91,12 @@ fun AppsScreen(
         return
     }
 
-    val filtered = remember(apps, query) {
+    // Hidden apps stay out of the list (unless shown), but a search still finds them.
+    val named = remember(apps, nameOf) { apps.map { it to nameOf(it) }.sortedBy { it.second.lowercase() } }
+    val filtered = remember(named, query, hidden, showHidden) {
         val q = query.trim()
-        if (q.isEmpty()) apps else apps.filter { it.label.contains(q, ignoreCase = true) }
+        if (q.isEmpty()) named.filter { showHidden || it.first.key !in hidden }.map { it.first }
+        else named.filter { it.second.contains(q, ignoreCase = true) || it.first.label.contains(q, ignoreCase = true) }.map { it.first }
     }
 
     PageColumn {
@@ -92,18 +128,23 @@ fun AppsScreen(
             Row(Modifier.weight(1f).imePadding()) {
                 PagedList(filtered, Modifier.weight(1f), resetKey = query to jumpCount, showIndex = jumpTo) { app ->
                     ListRow(
-                        app.label.lowercase(),
-                        trailing = if (app.key in pinned) "on home" else "",
+                        nameOf(app).lowercase(),
+                        trailing = when { app.key in hidden -> "hidden"; app.key in pinned -> "on home"; else -> "" },
                         onLongPress = { optionsFor = app },
                         onPress = { onLaunch(app) }
                     )
                 }
                 if (query.isBlank()) {
-                    LetterIndex(filtered.map { it.label }) { i -> jumpTo = i; jumpCount++ }
+                    LetterIndex(filtered.map { nameOf(it) }) { i -> jumpTo = i; jumpCount++ }
                 }
             }
         }
-        FooterLine(if (query.isBlank()) "${apps.size} apps" else "${filtered.size} of ${apps.size} apps")
+        Column(Modifier.press { if (hidden.isNotEmpty()) showHidden = !showHidden }) {
+            FooterLine(
+                (if (query.isBlank()) "${apps.size - hidden.size} apps" else "${filtered.size} found") +
+                    if (hidden.isEmpty()) "" else " · ${hidden.size} hidden · tap to " + if (showHidden) "leave them out" else "show them"
+            )
+        }
     }
 }
 

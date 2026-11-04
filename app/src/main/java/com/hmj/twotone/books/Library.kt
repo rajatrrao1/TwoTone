@@ -62,8 +62,15 @@ object Library {
     /** Adds one EPUB (copies it in and reads its title). Call off the main thread. */
     fun addFile(ctx: Context, uri: Uri): Book? {
         val id = Integer.toHexString(uri.toString().hashCode())
-        byId(id)?.let { return it }
         val dest = File(dir(ctx), "$id.epub")
+        byId(id)?.let { known ->
+            if (dest.exists()) return known
+            // Known (from a backup) but its copy is missing: copy it in again, keep your place.
+            return try {
+                ctx.contentResolver.openInputStream(uri)?.use { input -> dest.outputStream().use { input.copyTo(it) } }
+                known
+            } catch (e: Exception) { null }
+        }
         return try {
             ctx.contentResolver.openInputStream(uri)?.use { input -> dest.outputStream().use { input.copyTo(it) } }
             Epub(dest).use { e ->

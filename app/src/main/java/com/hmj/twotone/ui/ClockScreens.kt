@@ -77,8 +77,8 @@ fun ClockScreen(onEditAlarm: (Int) -> Unit, onTimer: () -> Unit, onStopwatch: ()
     AskForNotificationsOnce()
 
     var now by remember { mutableStateOf(LocalDateTime.now()) }
-    LaunchedEffect(tick) {
-        while (true) {
+    LaunchedEffect(tick, com.hmj.twotone.Visible.on) {
+        while (com.hmj.twotone.Visible.on) {
             now = LocalDateTime.now()
             delay(60_000L - System.currentTimeMillis() % 60_000L + 50L)
         }

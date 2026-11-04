@@ -61,3 +61,19 @@ fun AlbumArtImage(track: Track?, size: Dp, dots: Int = 64) {
         }
     }
 }
+
+
+/** Any picture (another app's cover art) dithered to the two UI colours. */
+@Composable
+fun DitheredPicture(src: android.graphics.Bitmap?, size: Dp, dots: Int, key: Any?) {
+    val p = LocalPalette.current
+    val bitmap by produceState<ImageBitmap?>(null, key, p, dots) {
+        value = if (src == null) null else withContext(Dispatchers.Default) {
+            try { AlbumArt.dither(src, dots, p.ink.toArgb(), p.paper.toArgb()).asImageBitmap() } catch (e: Exception) { null }
+        }
+    }
+    Box(Modifier.size(size).border(2.dp, p.ink)) {
+        val b = bitmap
+        if (b != null) Image(b, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.None)
+    }
+}

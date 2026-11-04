@@ -25,7 +25,9 @@ Personal, non-commercial.
   - **weather:** a pixel street that shows the weather, wind, a line about rain, the
     next hours, and the week with range bars.
   - **phone, calendar, coffee** as before.
-- **Apps:** search and an A–Z index.
+- **Apps:** search, an A–Z index, rename and hide.
+- **Search everything:** swipe down on the home list.
+- **Backup:** everything in one file, in a folder you choose, every day.
 - **Look:** one font for everything (UNSCII recommended), four text sizes, black on
   white or white on black, clean refreshes against ghosting, charging clock at night.
 

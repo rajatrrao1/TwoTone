@@ -72,7 +72,12 @@ object Notifications {
  * downloads, navigation), silent group summaries, and this launcher's own.
  */
 class NotificationReader : NotificationListenerService() {
-    override fun onListenerConnected() { Notifications.service = this; reload() }
+    override fun onListenerConnected() {
+        Notifications.service = this
+        reload()
+        // The same access lets the home bar follow what other apps are playing.
+        com.hmj.twotone.media.OtherPlayers.start(this)
+    }
     override fun onListenerDisconnected() { Notifications.service = null; Notifications.list = emptyList() }
     override fun onNotificationPosted(sbn: StatusBarNotification?) = reload()
     override fun onNotificationRemoved(sbn: StatusBarNotification?) = reload()

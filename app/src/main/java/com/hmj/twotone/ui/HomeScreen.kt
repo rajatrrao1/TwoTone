@@ -67,15 +67,16 @@ fun HomeScreen(
     onClockLongPress: () -> Unit,
     onWeather: () -> Unit,
     onCalendar: () -> Unit,
-    onMusic: () -> Unit
+    onMusic: () -> Unit,
+    onSearch: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val tick = LocalResumeTick.current
 
     // Redraw once a minute, on the minute; restart when the phone wakes.
     var now by remember { mutableStateOf(LocalDateTime.now()) }
-    LaunchedEffect(tick) {
-        while (true) {
+    LaunchedEffect(tick, com.hmj.twotone.Visible.on) {
+        while (com.hmj.twotone.Visible.on) {
             now = LocalDateTime.now()
             delay(60_000L - System.currentTimeMillis() % 60_000L + 50L)
         }
@@ -108,12 +109,15 @@ fun HomeScreen(
 
         // ── Band 3: your list (bigger type, a page at a time, dots on the right)
         SolidRule(thickness = 3.dp)
-        PagedList(rows, Modifier.weight(1f), resetKey = rows.size, rowSize = HOME_ROW_SIZE, indicator = PageIndicator.DOTS) { r ->
+        PagedList(rows, Modifier.weight(1f), resetKey = rows.size, rowSize = HOME_ROW_SIZE, indicator = PageIndicator.DOTS, onPullDown = onSearch) { r ->
             ListRow(r.label, trailing = "", size = HOME_ROW_SIZE, onPress = r.open)
         }
 
         // ── Band 4: what's playing, then the status line ──────────────────
-        if (Music.current != null) MiniPlayer(onMusic)
+        // Two Tone's own music first; otherwise whatever another app is playing.
+        // Shown while playing and for ten minutes after a pause; swipe it away to clear it sooner.
+        if (Music.showOnHome) MiniPlayer(onMusic)
+        else com.hmj.twotone.media.OtherPlayers.now?.takeIf { com.hmj.twotone.media.OtherPlayers.showOnHome(it) }?.let { OtherMiniPlayer(it) }
         StatusLine(battery, if (showWeather) null else forecast)
     }
 }
@@ -270,8 +274,8 @@ private fun MiniPlayer(onOpen: () -> Unit) {
     val t = Music.current ?: return
     val ink = LocalPalette.current.ink
     var pos by remember { mutableStateOf(0L) }
-    LaunchedEffect(t, Music.isPlaying) {
-        while (true) { pos = Music.positionMs(); if (!Music.isPlaying) break; delay(5_000) }
+    LaunchedEffect(t, Music.isPlaying, com.hmj.twotone.Visible.on) {
+        while (true) { pos = Music.positionMs(); if (!Music.isPlaying || !com.hmj.twotone.Visible.on) break; delay(5_000) }
     }
     Column {
         SolidRule(thickness = 3.dp)
@@ -301,6 +305,50 @@ private fun MiniPlayer(onOpen: () -> Unit) {
             PlayerKey(if (Music.isPlaying) "‖" else "▸") { Music.toggle(ctx) }
             Box(Modifier.width(3.dp).fillMaxHeight().background(ink))
             PlayerKey("▸▸") { Music.next(ctx) }
+        }
+    }
+}
+
+/** The same bar for another app's player: its cover, title, time left and controls. */
+@Composable
+private fun OtherMiniPlayer(m: com.hmj.twotone.media.OtherMedia) {
+    val ctx = LocalContext.current
+    val ink = LocalPalette.current.ink
+    val op = com.hmj.twotone.media.OtherPlayers
+    var pos by remember(m.key) { mutableStateOf(op.positionNow(m)) }
+    LaunchedEffect(m.key, m.playing, m.positionMs, com.hmj.twotone.Visible.on) {
+        while (true) { pos = op.positionNow(m); if (!m.playing || !com.hmj.twotone.Visible.on) break; delay(5_000) }
+    }
+    Column {
+        SolidRule(thickness = 3.dp)
+        Row(
+            Modifier.fillMaxWidth().height(58.dp).pointerInput(m.key) {
+                var dx = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { dx = 0f },
+                    onDragEnd = { if (kotlin.math.abs(dx) > size.width * 0.3f) op.dismiss() },
+                    onHorizontalDrag = { change, d -> dx += d; change.consume() }
+                )
+            },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.padding(start = 8.dp)) { DitheredPicture(m.art, 46.dp, dots = 46, key = m.key) }
+            Column(Modifier.weight(1f).press { op.open(ctx) }.padding(start = 10.dp)) {
+                BasicText(m.title, style = textStyle(17f, bold = true), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                Row {
+                    BasicText(
+                        listOf(m.artist, m.app.lowercase()).filter { it.isNotBlank() }.joinToString(" · "),
+                        Modifier.weight(1f), style = textStyle(13f), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis
+                    )
+                    if (m.durationMs > 0) BasicText(" -" + mmss((m.durationMs - pos).coerceAtLeast(0)), style = textStyle(13f), maxLines = 1)
+                }
+            }
+            Box(Modifier.width(3.dp).fillMaxHeight().background(ink))
+            PlayerKey("◂◂") { op.previous() }
+            Box(Modifier.width(3.dp).fillMaxHeight().background(ink))
+            PlayerKey(if (m.playing) "‖" else "▸") { op.toggle() }
+            Box(Modifier.width(3.dp).fillMaxHeight().background(ink))
+            PlayerKey("▸▸") { op.next() }
         }
     }
 }

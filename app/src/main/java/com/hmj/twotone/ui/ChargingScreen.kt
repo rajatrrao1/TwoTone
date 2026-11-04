@@ -36,9 +36,9 @@ fun ChargingScreen(battery: Int, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val is24h = DateFormat.is24HourFormat(ctx)
     var now by remember { mutableStateOf(LocalDateTime.now()) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(com.hmj.twotone.Visible.on) {
         AlarmStore.load(ctx)
-        while (true) {
+        while (com.hmj.twotone.Visible.on) {
             now = LocalDateTime.now()
             delay(60_000L - System.currentTimeMillis() % 60_000L + 50L)
         }

@@ -165,6 +165,8 @@ fun <T> PagedList(
     indicator: PageIndicator = PageIndicator.NUMBERS,
     /** Open on the page that holds this item (changing it jumps there). */
     showIndex: Int = 0,
+    /** A swipe down while already on the first page. */
+    onPullDown: (() -> Unit)? = null,
     row: @Composable (T) -> Unit
 ) {
     val rowH = rowHeight(rowSize)
@@ -195,7 +197,8 @@ fun <T> PagedList(
                 detectVerticalDragGestures(
                     onDragStart = { total = 0f },
                     onDragEnd = {
-                        if (total < -40f) turn(1) else if (total > 40f) turn(-1)
+                        if (total < -40f) turn(1)
+                        else if (total > 40f) { if (page <= 0 && onPullDown != null) onPullDown() else turn(-1) }
                     },
                     onVerticalDrag = { change, dy -> total += dy; change.consume() }
                 )
@@ -293,8 +296,8 @@ private fun HeaderClock() {
     val ctx = LocalContext.current
     val tick = LocalResumeTick.current
     var now by remember { mutableStateOf(java.time.LocalTime.now()) }
-    LaunchedEffect(tick) {
-        while (true) {
+    LaunchedEffect(tick, com.hmj.twotone.Visible.on) {
+        while (com.hmj.twotone.Visible.on) {
             now = java.time.LocalTime.now()
             kotlinx.coroutines.delay(60_000L - System.currentTimeMillis() % 60_000L + 50L)
         }

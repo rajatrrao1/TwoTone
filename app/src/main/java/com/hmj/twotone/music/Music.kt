@@ -49,6 +49,13 @@ object Music {
 
     val current: Track? get() = queue.getOrNull(index)
 
+    /** When the music last stopped playing (0 = not since it was brought back after a restart). */
+    var pausedAt by mutableStateOf(0L)
+        private set
+
+    /** The home bar shows while playing, and for ten minutes after a pause. */
+    val showOnHome: Boolean get() = current != null && (isPlaying || (pausedAt > 0 && System.currentTimeMillis() - pausedAt < 10 * 60_000L))
+
     /** When the sleep timer stops the music (epoch ms), or 0. */
     var sleepAt by mutableStateOf(0L)
         private set
@@ -151,6 +158,7 @@ object Music {
 
     fun pause() {
         player?.takeIf { it.isPlaying }?.pause()
+        if (isPlaying) pausedAt = System.currentTimeMillis()
         isPlaying = false
         appContext?.let { save(it); MusicService.sync(it) }
     }
