@@ -19,7 +19,12 @@ Personal, non-commercial.
   - **books:** EPUB reader, a page at a time, bookmarks, time left, dictionary.
   - **news:** add sites or feeds; stories shown as plain text; save for later; share a
     page from the browser to read it here.
-  - **phone, calendar, notes, weather, coffee** as before.
+  - **notes:** Markdown files, in the launcher or a folder of your own (an Obsidian
+    vault works); lists you tick in one tap; voice notes; pin, archive, filter, sort,
+    find; remind me (makes a calendar event); anything shared to Two Tone can become a note.
+  - **weather:** a pixel street that shows the weather, wind, a line about rain, the
+    next hours, and the week with range bars.
+  - **phone, calendar, coffee** as before.
 - **Apps:** search and an A–Z index.
 - **Look:** one font for everything (UNSCII recommended), four text sizes, black on
   white or white on black, clean refreshes against ghosting, charging clock at night.

@@ -16,8 +16,8 @@ import java.util.Locale
 
 data class Place(val name: String, val lat: Double, val lon: Double)
 
-data class HourForecast(val epochMs: Long, val temp: Double, val symbol: String)
-data class DayForecast(val date: LocalDate, val min: Double, val max: Double, val symbol: String)
+data class HourForecast(val epochMs: Long, val temp: Double, val symbol: String, val rainMm: Double = 0.0)
+data class DayForecast(val date: LocalDate, val min: Double, val max: Double, val symbol: String, val rainMm: Double = 0.0)
 
 data class Forecast(
     val place: String,
@@ -25,7 +25,11 @@ data class Forecast(
     val nowTemp: Double,
     val nowSymbol: String,
     val hours: List<HourForecast>,
-    val days: List<DayForecast>
+    val days: List<DayForecast>,
+    val windKmh: Double = 0.0,
+    /** Where the wind comes from, in degrees (0 = north). */
+    val windFromDeg: Double = 0.0,
+    val isDay: Boolean = true
 )
 
 /**
@@ -80,9 +84,9 @@ object WeatherApi {
         val lon = String.format(Locale.US, "%.4f", p.lon)
         return get(
             "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon" +
-                "&current=temperature_2m,weather_code,is_day" +
-                "&hourly=temperature_2m,weather_code,is_day" +
-                "&daily=weather_code,temperature_2m_max,temperature_2m_min" +
+                "&current=temperature_2m,weather_code,is_day,wind_speed_10m,wind_direction_10m" +
+                "&hourly=temperature_2m,weather_code,is_day,precipitation" +
+                "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum" +
                 "&timezone=auto&forecast_days=7"
         )
     }
@@ -98,20 +102,32 @@ object WeatherApi {
         val h = o.getJSONObject("hourly")
         val ht = h.getJSONArray("time"); val htemp = h.getJSONArray("temperature_2m")
         val hcode = h.getJSONArray("weather_code"); val hday = h.optJSONArray("is_day")
+        val hrain = h.optJSONArray("precipitation")
         val now = System.currentTimeMillis()
+        // From the hour that is under way now, for the next day.
         val hours = (0 until ht.length())
-            .map { i -> HourForecast(epoch(ht.getString(i)), htemp.getDouble(i), symbolFor(hcode.getInt(i), (hday?.optInt(i, 1) ?: 1) == 1)) }
-            .filter { it.epochMs > now }
-            .take(12)
+            .map { i ->
+                HourForecast(epoch(ht.getString(i)), htemp.getDouble(i), symbolFor(hcode.getInt(i), (hday?.optInt(i, 1) ?: 1) == 1),
+                    hrain?.optDouble(i, 0.0) ?: 0.0)
+            }
+            .filter { it.epochMs > now - 3_600_000L }
+            .take(25)
 
         val d = o.getJSONObject("daily")
         val dt = d.getJSONArray("time"); val dcode = d.getJSONArray("weather_code")
         val dmax = d.getJSONArray("temperature_2m_max"); val dmin = d.getJSONArray("temperature_2m_min")
+        val drain = d.optJSONArray("precipitation_sum")
         val days = (0 until dt.length()).map { i ->
-            DayForecast(LocalDate.parse(dt.getString(i)), dmin.getDouble(i), dmax.getDouble(i), symbolFor(dcode.getInt(i), true))
+            DayForecast(LocalDate.parse(dt.getString(i)), dmin.getDouble(i), dmax.getDouble(i), symbolFor(dcode.getInt(i), true),
+                drain?.optDouble(i, 0.0) ?: 0.0)
         }
 
-        return Forecast(placeName, fetchedAt, cur.getDouble("temperature_2m"), nowSymbol, hours, days)
+        return Forecast(
+            placeName, fetchedAt, cur.getDouble("temperature_2m"), nowSymbol, hours, days,
+            windKmh = cur.optDouble("wind_speed_10m", 0.0),
+            windFromDeg = cur.optDouble("wind_direction_10m", 0.0),
+            isDay = cur.optInt("is_day", 1) == 1
+        )
     }
 
     /** WMO weather codes → the symbol names the icons and words use. */

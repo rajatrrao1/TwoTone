@@ -11,7 +11,7 @@ fun SectionsScreen(handlerName: (Section) -> String, onSection: (Section) -> Uni
     PageColumn {
         PageHeader("sections", onBack)
         PagedList(Section.entries, Modifier.weight(1f)) { s ->
-            ListRow(s.label, trailing = handlerName(s)) { onSection(s) }
+            ListRow(s.label, trailing = bracket(handlerName(s))) { onSection(s) }
         }
     }
 }
@@ -29,8 +29,8 @@ fun SectionDetailScreen(
 ) {
     PageColumn {
         PageHeader(section.label, onBack)
-        ListRow("opens", trailing = handlerName, onPress = onPickApp)
-        ListRow("on home list", trailing = if (onHome) "yes" else "no", onPress = onToggleHome)
+        ListRow("opens", trailing = bracket(handlerName), onPress = onPickApp)
+        ListRow("on home list", trailing = bracket(if (onHome) "yes" else "no"), onPress = onToggleHome)
         ListRow("open it now", onPress = onOpen)
         Hint("The row keeps the name \u201c${section.label}\u201d whichever app it opens.")
     }

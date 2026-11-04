@@ -34,7 +34,14 @@ class Prefs(context: Context) {
     private val _ownStatusBar = mutableStateOf(sp.getBoolean(KEY_OWN_STATUS_BAR, true))
     private val _statusItems = mutableStateOf(
         (sp.getStringSet(KEY_STATUS_ITEMS, null)?.toSet() ?: setOf("battery", "bluetooth", "wifi", "mobile", "sound", "alarm"))
-            .let { if (sp.getBoolean("statusNotesAdded", false)) it else { sp.edit().putBoolean("statusNotesAdded", true).apply(); it + "notifications" } }
+            .let {
+                if (sp.getBoolean("statusNotesAdded2", false)) it
+                else {
+                    val withBell = it + "notifications" + "popup"
+                    sp.edit().putBoolean("statusNotesAdded2", true).putStringSet(KEY_STATUS_ITEMS, withBell).apply()
+                    withBell
+                }
+            }
     )
     private val _refreshMode = mutableStateOf(sp.getInt(KEY_REFRESH_MODE, if (sp.getBoolean(KEY_REFRESH, false)) 1 else 2))
 

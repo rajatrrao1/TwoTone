@@ -49,7 +49,7 @@ fun MusicSettingsScreen(onFolder: () -> Unit, onBack: () -> Unit) {
     PageColumn {
         PageHeader("music settings", onBack)
         vibrationReport?.let { Hint(it) }
-        PagedList(rows, Modifier.weight(1f)) { r -> ListRow(r.label, trailing = r.trailing, onPress = r.action) }
+        PagedList(rows, Modifier.weight(1f)) { r -> ListRow(r.label, trailing = bracket(r.trailing), onPress = r.action) }
         FooterLine("tap a row to change it")
     }
 }

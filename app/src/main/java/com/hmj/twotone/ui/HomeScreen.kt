@@ -114,7 +114,7 @@ fun HomeScreen(
 
         // ── Band 4: what's playing, then the status line ──────────────────
         if (Music.current != null) MiniPlayer(onMusic)
-        StatusLine(battery, if (showWeather) forecast else null)
+        StatusLine(battery, if (showWeather) null else forecast)
     }
 }
 

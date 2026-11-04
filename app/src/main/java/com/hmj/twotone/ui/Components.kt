@@ -29,6 +29,9 @@ import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -82,8 +85,17 @@ fun rowHeight(size: Float = 20f): Dp = with(LocalDensity.current) { textStyle(si
 /** Full-page background used by every screen. */
 @Composable
 fun PageColumn(content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxSize().background(LocalPalette.current.paper).systemBarsPadding()) { content() }
+    // The window always fills the screen; only the bars' space is padded, and the top only
+    // when Android's own status bar is the one showing. That keeps pages from jumping.
+    val top = if (LocalOwnStatusBar.current) Modifier else Modifier.statusBarsPadding()
+    Column(
+        Modifier.fillMaxSize().background(LocalPalette.current.paper)
+            .then(top).navigationBarsPadding().imePadding()
+    ) { content() }
 }
+
+/** Settings values in square brackets, so they stand apart from the names: [unscii 16]. */
+fun bracket(v: String): String = if (v.isBlank() || v.endsWith("▸") || v == "•") v else "[$v]"
 
 /** A row of a list: a word on the left, a marker on the right. */
 @Composable
@@ -252,14 +264,21 @@ fun PageHeader(title: String, onBack: (() -> Unit)?) {
                     }
                 }
             }
-            BasicText(
-                title,
-                Modifier.weight(1.6f),
-                style = textStyle(24f, bold = true, fixed = true).copy(textAlign = TextAlign.Center),
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis
-            )
+            BoxWithConstraints(Modifier.weight(2f), contentAlignment = Alignment.Center) {
+                val big = textStyle(24f, bold = true, fixed = true).copy(textAlign = TextAlign.Center)
+                val normal = textStyle(20f, bold = true, fixed = true).copy(textAlign = TextAlign.Center)
+                val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+                val fits = remember(title, big, constraints.maxWidth) {
+                    measurer.measure(title, big, softWrap = false).size.width <= constraints.maxWidth
+                }
+                BasicText(
+                    title,
+                    style = if (fits) big else normal,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Box(Modifier.weight(1f).padding(end = 14.dp), contentAlignment = Alignment.CenterEnd) {
                 // The launcher's own status bar already shows the time.
                 if (!LocalOwnStatusBar.current) HeaderClock()

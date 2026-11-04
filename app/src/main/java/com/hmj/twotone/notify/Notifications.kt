@@ -30,6 +30,13 @@ object Notifications {
     var list by mutableStateOf<List<Note>>(emptyList())
         internal set
     internal var service: NotificationReader? = null
+    /** Goes up by one whenever a notification arrives that wasn't there before. */
+    var arrived by mutableStateOf(0)
+        internal set
+    /** The most recent new arrival. */
+    var newest: Note? = null
+        internal set
+    internal val seen = HashSet<String>()
 
     /** Whether you've switched on Notification access for this app in Android settings. */
     fun hasAccess(ctx: Context): Boolean {
@@ -94,5 +101,12 @@ class NotificationReader : NotificationListenerService() {
             }
             .filter { it.title.isNotBlank() || it.text.isNotBlank() }
             .sortedByDescending { it.time }
+        // Anything not seen before (and posted in the last minute) counts as just arrived.
+        val fresh = Notifications.list.firstOrNull {
+            it.key !in Notifications.seen && System.currentTimeMillis() - it.time < 60_000L
+        }
+        val firstLoad = Notifications.seen.isEmpty()
+        Notifications.list.forEach { Notifications.seen += it.key }
+        if (fresh != null && !firstLoad) { Notifications.newest = fresh; Notifications.arrived++ }
     }
 }

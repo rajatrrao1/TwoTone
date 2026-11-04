@@ -18,12 +18,15 @@ fun HomeListScreen(
     pinned: List<String>,
     labelOf: (String) -> String,
     onChange: (List<String>) -> Unit,
+    onAdd: () -> Unit,
     onBack: () -> Unit
 ) {
     PageColumn {
         PageHeader("home list", onBack)
+        ListRow("+ add to the home list", bold = true, onPress = onAdd)
+        SolidRule()
         if (pinned.isEmpty()) {
-            Hint("Nothing here yet. Open apps and long-press one to add it, or add a section in settings.")
+            Hint("Nothing here yet.")
             return@PageColumn
         }
         PagedList(pinned, Modifier.weight(1f)) { k ->
@@ -45,5 +48,29 @@ fun HomeListScreen(
 private fun Mark(symbol: String, onPress: () -> Unit) {
     Box(Modifier.press(onPress = onPress).padding(horizontal = 12.dp, vertical = 8.dp)) {
         BasicText(symbol, style = textStyle(20f, bold = true, fixed = true))
+    }
+}
+
+
+/**
+ * Everything that isn't on the home list yet: the built-in sections first,
+ * then every installed app. Tap one to put it at the bottom of the list.
+ */
+@Composable
+fun AddToHomeScreen(
+    sections: List<Pair<String, String>>,
+    apps: List<Pair<String, String>>,
+    onAdd: (String) -> Unit,
+    onBack: () -> Unit
+) {
+    val rows: List<Pair<String, String>?> = (if (sections.isEmpty()) emptyList() else listOf<Pair<String, String>?>("" to "")) +
+        sections + listOf<Pair<String, String>?>(null) + apps
+    PageColumn {
+        PageHeader("add to home", onBack)
+        PagedList(rows, Modifier.weight(1f)) { r ->
+            if (r == null) SectionBar("apps")
+            else if (r.first.isEmpty()) SectionBar("sections")
+            else ListRow(r.second, trailing = if (r.first.startsWith("sec:")) "built-in" else "") { onAdd(r.first) }
+        }
     }
 }

@@ -52,6 +52,6 @@ fun SettingsScreen(
 
     PageColumn {
         PageHeader("settings", onBack)
-        PagedList(rows, Modifier.weight(1f)) { s -> ListRow(s.label, trailing = s.trailing, onPress = s.action) }
+        PagedList(rows, Modifier.weight(1f)) { s -> ListRow(s.label, trailing = bracket(s.trailing), onPress = s.action) }
     }
 }

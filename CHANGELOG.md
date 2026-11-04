@@ -1,3 +1,20 @@
+# Changes
+
+## 1.1
+- Music: page titles no longer get cut off ("now playing"); pages no longer change size
+  when Android's status bar hides or shows.
+- Home: no time in the top bar (it's big on the page already); no weather in the bottom
+  line when the weather is shown up top.
+- Notifications: the bell shows as it should; a new notification shows in the top bar
+  for six seconds (tap it to open; can be turned off in Settings > status bar).
+- Settings values are in square brackets: font [unscii 16].
+- Home list: "+ add to the home list" brings back sections you removed, and adds apps.
+- Weather: a pixel canal street with a windmill, under a sky that matches the weather;
+  wind with direction and in words; "dry all day" / "rain from 15:00"; the next hours;
+  swipe up for the week with low-to-high bars and rain amounts.
+- Notes, rebuilt as Markdown files (see README). Old notes are moved over once.
+- Sharing to Two Tone asks: read in news, or keep as a note.
+
 # Changes before 1.0
 
 These were the test versions built from Android Studio.

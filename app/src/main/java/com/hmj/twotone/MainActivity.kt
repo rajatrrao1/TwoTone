@@ -120,6 +120,7 @@ sealed interface Page {
     data object NewsLink : Page
     data class Article(val link: String, val storyId: String? = null, val savedId: String? = null) : Page
     data object StatusPanel : Page
+    data object AddToHome : Page
     data object Notifications : Page
     data object StatusBarSettings : Page
     data object Eink : Page
@@ -127,7 +128,10 @@ sealed interface Page {
     data object Timer : Page
     data object Stopwatch : Page
     data class AlarmEdit(val id: Int) : Page
-    data class NoteEdit(val id: Long) : Page
+    data class NoteEdit(val path: String) : Page
+    data object NoteRecord : Page
+    data object NotesPlace : Page
+    data class Shared(val text: String, val subject: String) : Page
     data class Fonts(val slot: FontSlot) : Page
     data object Coffee : Page
     data object Beans : Page
@@ -217,6 +221,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
+        // Draw edge to edge, and hide Android's status bar before the first frame,
+        // so the page never changes size afterwards.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        applyStatusBar()
         notes = NotesStore(this)
         coffee = CoffeeStore(this)
         AlarmStore.scheduleAll(this)
@@ -269,11 +277,14 @@ class MainActivity : ComponentActivity() {
                     if (showCharging) ChargingScreen(batteryLevel.intValue) { chargingDismissed.value = true }
                     else androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
                         if (prefs.ownStatusBar) {
-                            androidx.compose.foundation.layout.Box(Modifier.statusBarsPadding()) {
+                            androidx.compose.foundation.layout.Box {
                                 com.hmj.twotone.ui.LauncherStatusBar(
                                     phoneStatus.value, prefs.statusItems,
+                                    // The home page shows the time large already.
+                                    showTime = stack.last() != Page.Home,
                                     notificationCount = com.hmj.twotone.notify.Notifications.list.size,
-                                    onBell = { if (stack.last() != Page.Notifications) push(Page.Notifications) }
+                                    onBell = { if (stack.last() != Page.Notifications) push(Page.Notifications) },
+                                    onNote = { com.hmj.twotone.notify.Notifications.open(it) }
                                 ) {
                                     if (stack.last() != Page.StatusPanel) push(Page.StatusPanel)
                                 }
@@ -344,6 +355,7 @@ class MainActivity : ComponentActivity() {
                 pinned = prefs.pinned,
                 labelOf = ::labelOf,
                 onChange = prefs::setPinned,
+                onAdd = { push(Page.AddToHome) },
                 onBack = ::pop
             )
 
@@ -461,6 +473,13 @@ class MainActivity : ComponentActivity() {
 
             Page.Notifications -> com.hmj.twotone.ui.NotificationsScreen(onBack = ::pop)
 
+            Page.AddToHome -> com.hmj.twotone.ui.AddToHomeScreen(
+                sections = Section.entries.filter { it.key !in prefs.pinned }.map { it.key to it.label },
+                apps = apps.value.filter { it.key !in prefs.pinned }.map { it.key to it.label.lowercase() },
+                onAdd = { key -> prefs.setPinned(prefs.pinned + key); pop() },
+                onBack = ::pop
+            )
+
             Page.StatusBarSettings -> com.hmj.twotone.ui.StatusBarSettingsScreen(prefs, onBack = ::pop)
 
             Page.Eink -> com.hmj.twotone.ui.EinkScreen(prefs, onKompakt = ::openKompaktSettings, onBack = ::pop)
@@ -483,9 +502,32 @@ class MainActivity : ComponentActivity() {
 
             is Page.Reader -> ReaderScreen(page.bookId, onBack = ::pop)
 
-            Page.Notes -> NotesScreen(notes, onOpen = { push(Page.NoteEdit(it)) }, onBack = ::pop)
+            Page.Notes -> NotesScreen(
+                notes,
+                onOpen = { push(Page.NoteEdit(it)) },
+                onRecord = { push(Page.NoteRecord) },
+                onPlace = { push(Page.NotesPlace) },
+                onBack = ::pop
+            )
 
-            is Page.NoteEdit -> NoteEditScreen(notes, page.id, onBack = ::pop)
+            Page.NoteRecord -> com.hmj.twotone.ui.RecordScreen(notes, onSaved = { pop(); push(Page.NoteEdit(it)) }, onBack = ::pop)
+
+            Page.NotesPlace -> com.hmj.twotone.ui.NotesPlaceScreen(notes, onBack = ::pop)
+
+            is Page.Shared -> com.hmj.twotone.ui.SharedScreen(
+                text = page.text,
+                subject = page.subject,
+                onRead = { url -> pop(); push(Page.Article(url)) },
+                onNote = { title, body ->
+                    lifecycleScope.launch {
+                        val n = withContext(Dispatchers.IO) { notes.reload(); notes.create(title, body) }
+                        pop(); push(Page.Notes); push(Page.NoteEdit(n.path))
+                    }
+                },
+                onBack = ::pop
+            )
+
+            is Page.NoteEdit -> NoteEditScreen(notes, page.path, onBack = ::pop)
 
             Page.Phone -> PhoneScreen(onBack = ::pop)
 
@@ -591,9 +633,11 @@ class MainActivity : ComponentActivity() {
             intent.action == ACTION_OPEN_MUSIC -> { goHome(); push(Page.Music) }
             intent.action == ACTION_OPEN_CLOCK -> { goHome(); push(Page.Clock) }
             // "Share → Two Tone" from a browser: read the page as text
+            // Shared from another app: read a link as text, or keep anything as a note
             intent.action == Intent.ACTION_SEND -> {
                 val shared = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
-                Regex("https?://\\S+").find(shared)?.value?.let { url -> goHome(); push(Page.Article(url)) }
+                val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT).orEmpty()
+                if (shared.isNotBlank()) { goHome(); push(Page.Shared(shared, subject)) }
             }
             intent.hasCategory(Intent.CATEGORY_HOME) -> goHome()
         }

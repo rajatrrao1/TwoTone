@@ -58,6 +58,7 @@ data class PhoneStatus(
 /** The icons you can show, in the order they appear from left to right. */
 val STATUS_ITEMS = listOf(
     "notifications" to "notifications (left side)",
+    "popup" to "show new notifications for a moment",
     "date" to "date (left side)",
     "alarm" to "next alarm",
     "sound" to "silent / vibrate",
@@ -146,7 +147,42 @@ private fun signalIcon(level: Int): List<String> = (0 until 8).map { r ->
  * middle, your chosen icons on the right. Tap it for the status page.
  */
 @Composable
-fun LauncherStatusBar(status: PhoneStatus, items: Set<String>, notificationCount: Int, onBell: () -> Unit, onPress: () -> Unit) {
+fun LauncherStatusBar(
+    status: PhoneStatus,
+    items: Set<String>,
+    notificationCount: Int,
+    onBell: () -> Unit,
+    showTime: Boolean = true,
+    onNote: (com.hmj.twotone.notify.Note) -> Unit = {},
+    onPress: () -> Unit
+) {
+    // A new notification takes over the bar for six seconds; tap it to open it.
+    val arrived = com.hmj.twotone.notify.Notifications.arrived
+    var popup by remember { mutableStateOf<com.hmj.twotone.notify.Note?>(null) }
+    LaunchedEffect(arrived) {
+        val n = com.hmj.twotone.notify.Notifications.newest
+        if (arrived > 0 && n != null && "popup" in items) { popup = n; delay(6_000); popup = null }
+    }
+    val shown = popup
+    if (shown != null) {
+        Column {
+            Row(
+                Modifier.fillMaxWidth().height(30.dp).press { popup = null; onNote(shown) }.padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PixelGrid(ICON_BELL, cell = 2.dp)
+                BasicText(
+                    "${shown.app.lowercase()} · ${shown.title}",
+                    Modifier.weight(1f),
+                    style = textStyle(14f, fixed = true), maxLines = 1, softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
+            SolidRule(thickness = 2.dp)
+        }
+        return
+    }
     val ctx = LocalContext.current
     val tick = LocalResumeTick.current
     var now by remember { mutableStateOf(LocalDateTime.now()) }
@@ -179,10 +215,12 @@ fun LauncherStatusBar(status: PhoneStatus, items: Set<String>, notificationCount
                     BasicText(now.format(DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())).lowercase(), style = small, maxLines = 1)
                 }
             }
-            BasicText(
-                now.format(DateTimeFormatter.ofPattern(if (is24h) "HH:mm" else "h:mm")),
-                style = textStyle(18f, bold = true, fixed = true), maxLines = 1, softWrap = false
-            )
+            if (showTime) {
+                BasicText(
+                    now.format(DateTimeFormatter.ofPattern(if (is24h) "HH:mm" else "h:mm")),
+                    style = textStyle(18f, bold = true, fixed = true), maxLines = 1, softWrap = false
+                )
+            }
             Row(
                 Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),

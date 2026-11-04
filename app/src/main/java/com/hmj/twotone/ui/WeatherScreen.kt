@@ -3,6 +3,9 @@ package com.hmj.twotone.ui
 import android.Manifest
 import android.text.format.DateFormat
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,6 +43,50 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
+private fun compass(fromDeg: Double): String {
+    val names = listOf("n", "ne", "e", "se", "s", "sw", "w", "nw")
+    return names[(((fromDeg % 360 + 360) % 360 + 22.5) / 45).toInt() % 8]
+}
+
+/** The Beaufort scale in words. */
+private fun beaufort(kmh: Double): String = when {
+    kmh < 2 -> "calm"
+    kmh < 6 -> "light air"
+    kmh < 12 -> "light breeze"
+    kmh < 20 -> "gentle breeze"
+    kmh < 29 -> "moderate breeze"
+    kmh < 39 -> "fresh breeze"
+    kmh < 50 -> "strong breeze"
+    kmh < 62 -> "near gale"
+    kmh < 75 -> "gale"
+    kmh < 89 -> "strong gale"
+    else -> "storm"
+}
+
+/** One line about rain for the rest of today. */
+private fun rainLine(f: Forecast, is24h: Boolean): String {
+    val zone = ZoneId.systemDefault()
+    val today = java.time.LocalDate.now(zone)
+    val fmt = DateTimeFormatter.ofPattern(if (is24h) "HH:mm" else "h a", Locale.getDefault())
+    val left = f.hours.filter { Instant.ofEpochMilli(it.epochMs).atZone(zone).toLocalDate() == today }
+    if (left.isEmpty()) return ""
+    val wet = left.map { it.rainMm >= 0.1 }
+    return when {
+        wet.none { it } -> if (left.size >= 20) "dry all day" else "dry for the rest of the day"
+        wet.first() -> {
+            val stop = left.indexOfFirst { it.rainMm < 0.1 }
+            if (stop < 0) "rain for the rest of the day"
+            else "rain until " + Instant.ofEpochMilli(left[stop].epochMs).atZone(zone).format(fmt).lowercase()
+        }
+        else -> "rain from " + Instant.ofEpochMilli(left[wet.indexOf(true)].epochMs).atZone(zone).format(fmt).lowercase()
+    }
+}
+
+/**
+ * Two pages: now (the scene, the temperature, wind, rain and the next hours)
+ * and the week. Swipe up and down between them; dots on the right show where you are.
+ * Tap the bottom line to refresh or change the place.
+ */
 @Composable
 fun WeatherScreen(
     forecast: Forecast?,
@@ -53,76 +100,175 @@ fun WeatherScreen(
     val ctx = LocalContext.current
     val is24h = DateFormat.is24HourFormat(ctx)
     val zone = ZoneId.systemDefault()
+    var page by remember { mutableStateOf(0) }
+    var options by remember { mutableStateOf(false) }
+
+    if (options) {
+        androidx.activity.compose.BackHandler { options = false }
+        PageColumn {
+            PageHeader("weather", onBack = { options = false })
+            ListRow(if (loading) "updating…" else "update now", trailing = "") { onRefresh(); options = false }
+            ListRow("change place", onPress = { options = false; onChangePlace() })
+        }
+        return
+    }
 
     PageColumn {
         PageHeader("weather", onBack)
-        if (loading) Hint("Updating the forecast.")
         if (!hasPlace) {
             Hint("Choose a place to see its weather.")
             ListRow("choose place", onPress = onChangePlace)
             return@PageColumn
         }
-        if (error != null) {
-            Hint(error)
-            ConnectionCheck()
-        }
+        if (error != null) { Hint(error); ConnectionCheck() }
         if (forecast == null) {
-            if (!loading) ListRow("try again", trailing = "", onPress = onRefresh)
+            if (loading) Hint("Getting the forecast.")
+            else ListRow("try again", trailing = "", onPress = onRefresh)
             ListRow("change place", onPress = onChangePlace)
             return@PageColumn
         }
 
-        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            PixelGrid(WeatherIcons.forSymbol(forecast.nowSymbol), cell = 6.dp)
-            Spacer(Modifier.width(16.dp))
-            Column {
-                BasicText("${forecast.nowTemp.roundToInt()}°", style = textStyle(38f, bold = true))
-                BasicText(describe(forecast.nowSymbol), style = textStyle(16f))
-                BasicText(forecast.place.substringBefore(","), style = textStyle(14f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        androidx.compose.foundation.layout.Box(
+            Modifier.weight(1f).fillMaxWidth().pointerInput(Unit) {
+                var total = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { total = 0f },
+                    onDragEnd = { if (total < -40f) page = 1 else if (total > 40f) page = 0 },
+                    onVerticalDrag = { ch, dy -> total += dy; ch.consume() }
+                )
+            }
+        ) {
+            Column(Modifier.fillMaxSize().padding(end = 14.dp)) {
+                if (page == 0) NowPage(forecast, is24h) else WeekPage(forecast)
+            }
+            // Page dots
+            Column(
+                Modifier.align(Alignment.CenterEnd).padding(end = 4.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(7.dp)
+            ) {
+                val ink = LocalPalette.current.ink
+                for (i in 0..1) androidx.compose.foundation.Canvas(Modifier.width(8.dp).height(8.dp).press { page = i }) {
+                    val r = size.minDimension / 2f
+                    if (i == page) drawCircle(ink, r) else drawCircle(ink, r - 1.dp.toPx(), style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
+                }
             }
         }
-        DitherRule()
-
-        val hourFmt = DateTimeFormatter.ofPattern(if (is24h) "HH:mm" else "h a", Locale.getDefault())
-        val dayFmt = DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())
-        val rows: List<@Composable () -> Unit> =
-            forecast.hours.map { h ->
-                @Composable {
-                    ForecastRow(
-                        Instant.ofEpochMilli(h.epochMs).atZone(zone).format(hourFmt).lowercase(),
-                        h.symbol,
-                        "${h.temp.roundToInt()}°"
-                    )
-                }
-            } + forecast.days.map { d ->
-                @Composable {
-                    ForecastRow(d.date.format(dayFmt).lowercase(), d.symbol, "${d.max.roundToInt()}° / ${d.min.roundToInt()}°")
-                }
-            } + listOf<@Composable () -> Unit>(
-                { ListRow("refresh", trailing = "", onPress = onRefresh) },
-                { ListRow("change place", onPress = onChangePlace) }
-            )
-        PagedList(rows, Modifier.weight(1f)) { it() }
-        BasicText(
-            "Weather data by Open-Meteo.com",
-            Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
-            style = textStyle(12f),
-            maxLines = 1
-        )
+        val asOf = Instant.ofEpochMilli(forecast.fetchedAt).atZone(zone)
+            .format(DateTimeFormatter.ofPattern(if (is24h) "HH:mm" else "h:mm a", Locale.getDefault())).lowercase()
+        Column(Modifier.press { options = true }) {
+            FooterLine("${forecast.place.substringBefore(",").lowercase()} · " + if (loading) "updating" else "as of $asOf")
+        }
     }
 }
 
 @Composable
-private fun ForecastRow(label: String, symbol: String, value: String) {
-    Row(
-        Modifier.fillMaxWidth().height(rowHeight()).padding(horizontal = 18.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        BasicText(label, Modifier.width(96.dp), style = textStyle(17f), maxLines = 1, softWrap = false)
-        PixelGrid(WeatherIcons.forSymbol(symbol), cell = 3.dp)
+private fun NowPage(f: Forecast, is24h: Boolean) {
+    val zone = ZoneId.systemDefault()
+    val today = f.days.firstOrNull()
+    WeatherScene(f.nowSymbol, f.isDay, 110.dp)
+    Row(Modifier.fillMaxWidth().padding(start = 14.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        BasicText("${f.nowTemp.roundToInt()}°", style = textStyle(30f, bold = true, fixed = true), maxLines = 1, softWrap = false)
         Spacer(Modifier.width(12.dp))
-        BasicText(describe(symbol), Modifier.weight(1f), style = textStyle(14f), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
-        BasicText(value, style = textStyle(17f, bold = true), maxLines = 1, softWrap = false)
+        Column(Modifier.weight(1f)) {
+            BasicText(describe(f.nowSymbol), style = textStyle(15f), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+            if (today != null) BasicText("${today.max.roundToInt()}° / ${today.min.roundToInt()}°", style = textStyle(15f), maxLines = 1)
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                WindArrow(f.windFromDeg)
+                Spacer(Modifier.width(6.dp))
+                BasicText("${compass(f.windFromDeg)} ${f.windKmh.roundToInt()} km/h", style = textStyle(15f), maxLines = 1)
+            }
+            BasicText(beaufort(f.windKmh), style = textStyle(15f), maxLines = 1)
+        }
+    }
+    val line = rainLine(f, is24h)
+    if (line.isNotEmpty()) {
+        BasicText(line, Modifier.padding(horizontal = 14.dp, vertical = 6.dp), style = textStyle(20f), maxLines = 1, softWrap = false)
+    }
+    SectionBar("the next hours")
+    val fmt = DateTimeFormatter.ofPattern(if (is24h) "HH:mm" else "h a", Locale.getDefault())
+    // Every other hour, as many as fit
+    val picks = f.hours.filterIndexed { i, _ -> i % 2 == 0 }.take(6)
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        picks.forEachIndexed { i, h ->
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                BasicText(
+                    if (i == 0) "now" else Instant.ofEpochMilli(h.epochMs).atZone(zone).format(fmt).lowercase(),
+                    style = textStyle(13f, fixed = true), maxLines = 1, softWrap = false
+                )
+                Spacer(Modifier.height(4.dp))
+                PixelGrid(WeatherIcons.forSymbol(h.symbol), cell = 2.dp)
+                Spacer(Modifier.height(4.dp))
+                BasicText("${h.temp.roundToInt()}°", style = textStyle(14f, fixed = true), maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeekPage(f: Forecast) {
+    val lo = f.days.minOfOrNull { it.min } ?: 0.0
+    val hi = f.days.maxOfOrNull { it.max } ?: 1.0
+    SectionBar("the week", "${f.days.size} days")
+    val today = java.time.LocalDate.now()
+    f.days.take(7).forEach { d ->
+        Row(Modifier.fillMaxWidth().height(rowHeight()).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            BasicText(
+                if (d.date == today) "today" else d.date.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())).lowercase(),
+                Modifier.width(64.dp), style = textStyle(18f), maxLines = 1, softWrap = false
+            )
+            PixelGrid(WeatherIcons.forSymbol(d.symbol), cell = 2.dp)
+            Spacer(Modifier.width(8.dp))
+            BasicText("${d.min.roundToInt()}°", Modifier.width(34.dp), style = textStyle(14f, fixed = true), maxLines = 1)
+            RangeBar(d.min, d.max, lo, hi, Modifier.weight(1f))
+            BasicText("${d.max.roundToInt()}°", Modifier.padding(start = 6.dp).width(34.dp), style = textStyle(14f, fixed = true), maxLines = 1)
+        }
+    }
+    val wetDays = f.days.take(7).filter { it.rainMm >= 1.0 }
+    if (wetDays.isNotEmpty()) {
+        BasicText(
+            "rain: " + wetDays.joinToString(", ") { it.date.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())).lowercase() + " ${it.rainMm.roundToInt()} mm" },
+            Modifier.padding(horizontal = 14.dp, vertical = 6.dp), style = textStyle(14f), maxLines = 2
+        )
+    }
+}
+
+/** A thin line for the week's range, with a solid bar for this day's low to high. */
+@Composable
+private fun RangeBar(min: Double, max: Double, lo: Double, hi: Double, modifier: Modifier) {
+    val ink = LocalPalette.current.ink
+    androidx.compose.foundation.Canvas(modifier.height(10.dp)) {
+        val span = (hi - lo).coerceAtLeast(1.0)
+        val a = ((min - lo) / span).toFloat() * size.width
+        val b = ((max - lo) / span).toFloat() * size.width
+        val mid = size.height / 2f
+        // dotted week line
+        var x = 0f
+        while (x < size.width) { drawRect(ink, androidx.compose.ui.geometry.Offset(x, mid - 1f), androidx.compose.ui.geometry.Size(2f, 2f)); x += 6f }
+        drawRect(ink, androidx.compose.ui.geometry.Offset(a, mid - 3.dp.toPx()), androidx.compose.ui.geometry.Size((b - a).coerceAtLeast(3.dp.toPx()), 6.dp.toPx()))
+    }
+}
+
+/** An arrow pointing where the wind blows to. */
+@Composable
+private fun WindArrow(fromDeg: Double) {
+    val ink = LocalPalette.current.ink
+    androidx.compose.foundation.Canvas(Modifier.width(18.dp).height(18.dp)) {
+        val to = Math.toRadians(fromDeg + 180.0)
+        val c = center
+        val r = size.minDimension / 2f - 2.dp.toPx()
+        // screen y grows downwards; north is up
+        val dx = (kotlin.math.sin(to) * r).toFloat(); val dy = (-kotlin.math.cos(to) * r).toFloat()
+        val tip = androidx.compose.ui.geometry.Offset(c.x + dx, c.y + dy)
+        val tail = androidx.compose.ui.geometry.Offset(c.x - dx, c.y - dy)
+        val w = 2.5.dp.toPx()
+        drawLine(ink, tail, tip, strokeWidth = w)
+        val back = Math.toRadians(fromDeg + 180.0 + 150.0)
+        val back2 = Math.toRadians(fromDeg + 180.0 - 150.0)
+        val l = r * 0.7f
+        drawLine(ink, tip, androidx.compose.ui.geometry.Offset(tip.x + (kotlin.math.sin(back) * l).toFloat(), tip.y - (kotlin.math.cos(back) * l).toFloat()), strokeWidth = w)
+        drawLine(ink, tip, androidx.compose.ui.geometry.Offset(tip.x + (kotlin.math.sin(back2) * l).toFloat(), tip.y - (kotlin.math.cos(back2) * l).toFloat()), strokeWidth = w)
     }
 }
 

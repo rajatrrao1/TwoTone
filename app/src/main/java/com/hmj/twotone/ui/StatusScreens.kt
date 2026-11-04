@@ -117,11 +117,11 @@ fun StatusBarSettingsScreen(prefs: Prefs, onBack: () -> Unit) {
         PageHeader("status bar", onBack)
         PagedList(rows, Modifier.weight(1f)) { item ->
             if (item == null) {
-                ListRow("bar at the top", trailing = if (prefs.ownStatusBar) "launcher's" else "android's") {
+                ListRow("bar at the top", trailing = bracket(if (prefs.ownStatusBar) "launcher's" else "android's")) {
                     prefs.setOwnStatusBar(!prefs.ownStatusBar)
                 }
             } else {
-                ListRow(item.second, trailing = if (item.first in prefs.statusItems) "on" else "off") {
+                ListRow(item.second, trailing = bracket(if (item.first in prefs.statusItems) "on" else "off")) {
                     prefs.toggleStatusItem(item.first)
                 }
             }
@@ -139,7 +139,7 @@ fun EinkScreen(prefs: Prefs, onKompakt: () -> Unit, onBack: () -> Unit) {
     val modes = listOf("off", "after other apps", "+ every 10 page turns", "+ every 5 page turns")
     PageColumn {
         PageHeader("e-ink", onBack)
-        ListRow("clean refresh", trailing = modes[prefs.refreshMode.coerceIn(0, 3)]) {
+        ListRow("clean refresh", trailing = bracket(modes[prefs.refreshMode.coerceIn(0, 3)])) {
             prefs.setRefreshMode((prefs.refreshMode + 1) % modes.size)
         }
         ListRow("kompakt display settings", onPress = onKompakt)
