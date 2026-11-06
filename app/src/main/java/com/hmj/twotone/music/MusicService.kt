@@ -49,14 +49,7 @@ class MusicService : Service() {
             if (intent.action != Intent.ACTION_SCREEN_OFF) return
             MusicSettings.load(context)
             if (!MusicSettings.onLockScreen || !Music.showOnHome) return
-            // Android only lets an app open a page from the background with "Display over other apps".
-            if (Build.VERSION.SDK_INT >= 23 && !android.provider.Settings.canDrawOverlays(context)) return
-            try {
-                startActivity(
-                    Intent(context, LockPlayerActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
-                )
-            } catch (e: Exception) { }
+            showOverLockScreen()
         }
     }
 
@@ -81,6 +74,40 @@ class MusicService : Service() {
         }
         registerReceiver(noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
         registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF))
+    }
+
+    /**
+     * Puts the player over the lock screen the way alarm clocks do: a silent
+     * "full-screen" notification, which Android lets cover the lock screen. A page
+     * opened directly from the background ends up behind the lock screen instead.
+     */
+    private fun showOverLockScreen() {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(
+            NotificationChannel(LOCK_CHANNEL, "Music on the lock screen", NotificationManager.IMPORTANCE_HIGH).apply {
+                setSound(null, null); enableVibration(false); setShowBadge(false)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+        )
+        val open = PendingIntent.getActivity(
+            this, 9, Intent(this, LockPlayerActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val canFullScreen = Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent()
+        if (canFullScreen) {
+            val n = Notification.Builder(this, LOCK_CHANNEL)
+                .setSmallIcon(R.drawable.ic_stat_music)
+                .setContentTitle(Music.current?.title ?: "music")
+                .setCategory(Notification.CATEGORY_TRANSPORT)
+                .setFullScreenIntent(open, true)
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .setTimeoutAfter(15_000)
+                .build()
+            nm.notify(LOCK_NOTIFICATION_ID, n)
+        } else if (Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)) {
+            try { open.send() } catch (e: Exception) { }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -202,6 +229,8 @@ class MusicService : Service() {
     companion object {
         private const val CHANNEL = "music"
         private const val NOTIFICATION_ID = 41
+        private const val LOCK_CHANNEL = "lockplayer"
+        const val LOCK_NOTIFICATION_ID = 43
         const val ACTION_TOGGLE = "com.hmj.twotone.music.TOGGLE"
         const val ACTION_NEXT = "com.hmj.twotone.music.NEXT"
         const val ACTION_PREVIOUS = "com.hmj.twotone.music.PREVIOUS"

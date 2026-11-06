@@ -39,6 +39,8 @@ class LockPlayerActivity : ComponentActivity() {
             @Suppress("DEPRECATION")
             window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
         }
+        // The notification that brought us here has done its job.
+        getSystemService(android.app.NotificationManager::class.java)?.cancel(MusicService.LOCK_NOTIFICATION_ID)
         val prefs = Prefs(this)
         setContent {
             LauncherTheme(this, prefs, resumeTick.intValue) {

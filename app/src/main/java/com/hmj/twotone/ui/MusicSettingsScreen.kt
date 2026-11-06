@@ -39,18 +39,24 @@ fun MusicSettingsScreen(onFolder: () -> Unit, onBack: () -> Unit) {
         MusicSetting("test vibration", "") { vibrationReport = MusicSettings.testVibration(ctx) },
         MusicSetting("on the lock screen", onOff(MusicSettings.onLockScreen)) {
             val turningOn = !MusicSettings.onLockScreen
-            if (turningOn && Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(ctx)) {
-                // One-time permission, needed to put the player up when the screen goes off.
-                vibrationReport = "Switch on \u201cDisplay over other apps\u201d for Two Tone, then come back and tap this again."
-                try {
-                    ctx.startActivity(
-                        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}"))
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                } catch (e: Exception) { }
-            } else {
-                MusicSettings.setOnLockScreen(ctx, turningOn)
-                vibrationReport = if (turningOn) "While music plays, turning the screen off puts the player on the lock screen." else null
+            val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
+            val needsFullScreen = Build.VERSION.SDK_INT >= 34 && nm?.canUseFullScreenIntent() == false
+            when {
+                turningOn && needsFullScreen -> {
+                    // Android 14 asks for this once: it's what lets a page cover the lock screen.
+                    vibrationReport = "Allow Two Tone to show full-screen notifications, then come back and tap this again."
+                    try {
+                        ctx.startActivity(
+                            Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${ctx.packageName}"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    } catch (e: Exception) { }
+                }
+                else -> {
+                    MusicSettings.setOnLockScreen(ctx, turningOn)
+                    vibrationReport = if (turningOn) "While music plays, turning the screen off puts the player on the lock screen. " +
+                        "If notifications are off for Two Tone, switch them on: the player arrives through one." else null
+                }
             }
         },
         MusicSetting("music folder", MusicSettings.folder?.trimEnd('/')?.substringAfterLast('/')?.lowercase() ?: "all", onFolder),

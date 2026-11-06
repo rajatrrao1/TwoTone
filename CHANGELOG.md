@@ -1,5 +1,10 @@
 # Changes
 
+## 1.4.1
+- Music on the lock screen: the player now arrives through a silent full-screen
+  notification (as alarm clocks do), so it covers the lock screen and can be used,
+  instead of sitting behind it.
+
 ## 1.4
 - Music on the lock screen (Settings > music > on the lock screen): while music plays,
   turning the screen off puts the player on top of the lock screen. The power button
