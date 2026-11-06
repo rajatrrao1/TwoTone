@@ -2,6 +2,10 @@ package com.hmj.twotone.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -33,6 +37,22 @@ fun MusicSettingsScreen(onFolder: () -> Unit, onBack: () -> Unit) {
             MusicSettings.setHaptics(ctx, !MusicSettings.haptics); MusicSettings.tick(view)
         },
         MusicSetting("test vibration", "") { vibrationReport = MusicSettings.testVibration(ctx) },
+        MusicSetting("on the lock screen", onOff(MusicSettings.onLockScreen)) {
+            val turningOn = !MusicSettings.onLockScreen
+            if (turningOn && Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(ctx)) {
+                // One-time permission, needed to put the player up when the screen goes off.
+                vibrationReport = "Switch on \u201cDisplay over other apps\u201d for Two Tone, then come back and tap this again."
+                try {
+                    ctx.startActivity(
+                        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}"))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } catch (e: Exception) { }
+            } else {
+                MusicSettings.setOnLockScreen(ctx, turningOn)
+                vibrationReport = if (turningOn) "While music plays, turning the screen off puts the player on the lock screen." else null
+            }
+        },
         MusicSetting("music folder", MusicSettings.folder?.trimEnd('/')?.substringAfterLast('/')?.lowercase() ?: "all", onFolder),
         MusicSetting("repeat", MusicSettings.repeat.label) {
             val all = Repeat.entries

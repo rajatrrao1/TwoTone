@@ -1,5 +1,11 @@
 # Changes
 
+## 1.4
+- Music on the lock screen (Settings > music > on the lock screen): while music plays,
+  turning the screen off puts the player on top of the lock screen. The power button
+  wakes the phone straight into it; back returns to the lock screen, and "unlock"
+  unlocks and opens music in the launcher. Needs "Display over other apps", once.
+
 ## 1.3
 - Coffee: can show your Coffee app's beans, read from the coffee-beans.json it keeps in
   its backup folder (coffee > use my coffee app's beans). Adding and editing open Coffee.

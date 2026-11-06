@@ -40,6 +40,26 @@ class MusicService : Service() {
         }
     }
 
+    /**
+     * When the screen goes off with music playing, put the player on top of the lock
+     * screen, so the power button wakes the phone straight into it.
+     */
+    private val screenOff = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != Intent.ACTION_SCREEN_OFF) return
+            MusicSettings.load(context)
+            if (!MusicSettings.onLockScreen || !Music.showOnHome) return
+            // Android only lets an app open a page from the background with "Display over other apps".
+            if (Build.VERSION.SDK_INT >= 23 && !android.provider.Settings.canDrawOverlays(context)) return
+            try {
+                startActivity(
+                    Intent(context, LockPlayerActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                )
+            } catch (e: Exception) { }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -60,6 +80,7 @@ class MusicService : Service() {
             isActive = true
         }
         registerReceiver(noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+        registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -155,6 +176,7 @@ class MusicService : Service() {
     override fun onDestroy() {
         instance = null
         try { unregisterReceiver(noisy) } catch (e: Exception) { }
+        try { unregisterReceiver(screenOff) } catch (e: Exception) { }
         session.release()
         artLoader.shutdown()
         super.onDestroy()
