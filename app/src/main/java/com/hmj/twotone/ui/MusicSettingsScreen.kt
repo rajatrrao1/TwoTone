@@ -37,29 +37,8 @@ fun MusicSettingsScreen(onFolder: () -> Unit, onBack: () -> Unit) {
             MusicSettings.setHaptics(ctx, !MusicSettings.haptics); MusicSettings.tick(view)
         },
         MusicSetting("test vibration", "") { vibrationReport = MusicSettings.testVibration(ctx) },
-        MusicSetting("on the lock screen", onOff(MusicSettings.onLockScreen)) {
-            val turningOn = !MusicSettings.onLockScreen
-            val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
-            val needsFullScreen = Build.VERSION.SDK_INT >= 34 && nm?.canUseFullScreenIntent() == false
-            when {
-                turningOn && needsFullScreen -> {
-                    // Android 14 asks for this once: it's what lets a page cover the lock screen.
-                    vibrationReport = "Allow Two Tone to show full-screen notifications, then come back and tap this again."
-                    try {
-                        ctx.startActivity(
-                            Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${ctx.packageName}"))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
-                    } catch (e: Exception) { }
-                }
-                else -> {
-                    MusicSettings.setOnLockScreen(ctx, turningOn)
-                    vibrationReport = if (turningOn) "While music plays, turning the screen off puts the player on the lock screen. " +
-                        "If notifications are off for Two Tone, switch them on: the player arrives through one." else null
-                }
-            }
-        },
         MusicSetting("music folder", MusicSettings.folder?.trimEnd('/')?.substringAfterLast('/')?.lowercase() ?: "all", onFolder),
+        MusicSetting("shuffle", onOff(MusicSettings.shuffle)) { Music.setShuffle(ctx, !MusicSettings.shuffle) },
         MusicSetting("repeat", MusicSettings.repeat.label) {
             val all = Repeat.entries
             MusicSettings.setRepeat(ctx, all[(all.indexOf(MusicSettings.repeat) + 1) % all.size])

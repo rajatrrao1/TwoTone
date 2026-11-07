@@ -231,6 +231,9 @@ fun NoteEditScreen(store: NotesStore, path: String, onBack: () -> Unit) {
     var title by remember(path) { mutableStateOf(note.title) }
     var text by remember(path) { mutableStateOf(note.text) }
     var asList by remember(path) { mutableStateOf(note.isList) }
+    // The text editor works on the text plus the cursor, so Enter can continue lists.
+    var field by remember(path) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(note.text)) }
+    LaunchedEffect(asList) { if (!asList && field.text != text) field = androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(text.length)) }
     val latestTitle by rememberUpdatedState(title)
     val latestText by rememberUpdatedState(text)
     val palette = LocalPalette.current
@@ -272,8 +275,8 @@ fun NoteEditScreen(store: NotesStore, path: String, onBack: () -> Unit) {
         store.get(currentPath)?.let { n -> store.recordingUri(n)?.let { RecordingPlayer(it) } }
         if (asList) ChecklistView(text, onChange = { text = it })
         else BasicTextField(
-            value = text,
-            onValueChange = { text = it },
+            value = field,
+            onValueChange = { new -> field = continueLists(field, new); text = field.text },
             modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp),
             textStyle = textStyle(18f),
             cursorBrush = SolidColor(palette.ink)
@@ -287,6 +290,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.ChecklistView(text: S
     val lines = text.lines()
     val palette = LocalPalette.current
     var adding by remember { mutableStateOf("") }
+    val addFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     // Rows: index of each non-empty line
     val rows = lines.indices.filter { lines[it].isNotBlank() && Note.TASK.find(lines[it])?.groupValues?.get(3)?.isNotBlank() != false }
     fun setLine(i: Int, v: String?) {
@@ -302,6 +306,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.ChecklistView(text: S
         l.add(if (lastTask < 0) l.size else lastTask + 1, "- [ ] $item")
         onChange(l.joinToString("\n"))
         adding = ""
+        try { addFocus.requestFocus() } catch (e: Exception) { }
     }
     val ticked = lines.count { Note.TASK.find(it)?.groupValues?.get(2)?.let { m -> m != " " } == true }
 
@@ -329,11 +334,16 @@ private fun androidx.compose.foundation.layout.ColumnScope.ChecklistView(text: S
     Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         BasicText("add: ", style = textStyle(18f, bold = true), maxLines = 1, softWrap = false)
         BasicTextField(
-            value = adding, onValueChange = { adding = it.replace("\n", "") }, singleLine = true,
+            value = adding,
+            onValueChange = { v ->
+                // Enter (on any keyboard) adds the item and leaves the box ready for the next one.
+                if (v.contains('\n')) { adding = v.replace("\n", ""); add() } else adding = v
+            },
+            singleLine = true,
             textStyle = textStyle(18f), cursorBrush = SolidColor(palette.ink),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { add() }),
-            modifier = Modifier.weight(1f)
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            keyboardActions = KeyboardActions(onNext = { add() }, onDone = { add() }),
+            modifier = Modifier.weight(1f).focusRequester(addFocus)
         )
         BoxButton("add", Modifier.width(60.dp)) { add() }
     }
@@ -475,4 +485,37 @@ fun NotesPlaceScreen(store: NotesStore, onBack: () -> Unit) {
         if (busy) Hint("Copying the notes.")
         Hint("The old place keeps every note. A different note with the same name is kept beside it as \\u201cname (other copy)\\u201d.")
     }
+}
+
+
+private val LIST_MARK = Regex("^(\\s*)([-*] \\[[ xX]] |[-*] |(\\d+)\\. )(.*)$")
+
+/**
+ * Enter at the end of a list line starts the next item the same way
+ * ("- [ ] ", "- ", "2. "); Enter on an item left empty ends the list instead.
+ */
+private fun continueLists(
+    old: androidx.compose.ui.text.input.TextFieldValue,
+    new: androidx.compose.ui.text.input.TextFieldValue
+): androidx.compose.ui.text.input.TextFieldValue {
+    val cursor = new.selection.start
+    val typedNewline = new.text.length == old.text.length + 1 && cursor > 0 && new.text[cursor - 1] == '\n' && new.selection.collapsed
+    if (!typedNewline) return new
+    val lineStart = new.text.lastIndexOf('\n', cursor - 2).let { if (it < 0) 0 else it + 1 }
+    val line = new.text.substring(lineStart, cursor - 1)
+    val m = LIST_MARK.find(line) ?: return new
+    val (indent, mark, number, rest) = m.destructured
+    if (rest.isBlank()) {
+        // An empty item: take the marker away and stop the list there.
+        val t = new.text.substring(0, lineStart) + new.text.substring(cursor)
+        return androidx.compose.ui.text.input.TextFieldValue(t, androidx.compose.ui.text.TextRange(lineStart))
+    }
+    val next = when {
+        number.isNotEmpty() -> "${number.toInt() + 1}. "
+        mark.contains("[") -> mark.substring(0, 2) + "[ ] "
+        else -> mark
+    }
+    val insert = indent + next
+    val t = new.text.substring(0, cursor) + insert + new.text.substring(cursor)
+    return androidx.compose.ui.text.input.TextFieldValue(t, androidx.compose.ui.text.TextRange(cursor + insert.length))
 }

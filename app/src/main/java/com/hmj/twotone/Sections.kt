@@ -14,7 +14,8 @@ enum class Section(val id: String, val label: String) {
     /** Opened by tapping the home clock; not added to the home list by itself. */
     CLOCK("clock", "clock"),
     BOOKS("books", "books"),
-    NEWS("news", "news");
+    NEWS("news", "news"),
+    TRAINS("trains", "trains");
 
     /** How this section is stored in the home list. */
     val key: String get() = "sec:$id"

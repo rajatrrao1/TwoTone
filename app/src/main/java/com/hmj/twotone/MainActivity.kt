@@ -129,6 +129,12 @@ sealed interface Page {
     data object Eink : Page
     data class Reader(val bookId: String) : Page
     data object Timer : Page
+    data object Focus : Page
+    data object Trains : Page
+    data object AddStation : Page
+    data object NsKey : Page
+    data class Departures(val code: String, val name: String, val short: String) : Page
+    data object AddPlace : Page
     data object Stopwatch : Page
     data class AlarmEdit(val id: Int) : Page
     data class NoteEdit(val path: String) : Page
@@ -401,8 +407,27 @@ class MainActivity : ComponentActivity() {
                 onEditAlarm = { push(Page.AlarmEdit(it)) },
                 onTimer = { push(Page.Timer) },
                 onStopwatch = { push(Page.Stopwatch) },
+                onBack = ::pop,
+                onFocus = { push(Page.Focus) },
+                onAddPlace = { push(Page.AddPlace) }
+            )
+
+            Page.Focus -> com.hmj.twotone.ui.FocusScreen(onBack = ::pop)
+
+            Page.Trains -> com.hmj.twotone.ui.TrainsScreen(
+                onStation = { push(Page.Departures(it.code, it.name, it.short)) },
+                onAdd = { push(Page.AddStation) },
+                onKey = { push(Page.NsKey) },
                 onBack = ::pop
             )
+
+            is Page.Departures -> com.hmj.twotone.ui.DeparturesScreen(com.hmj.twotone.trains.Station(page.code, page.name, page.short), onBack = ::pop)
+
+            Page.AddStation -> com.hmj.twotone.ui.AddStationScreen(onBack = ::pop)
+
+            Page.NsKey -> com.hmj.twotone.ui.NsKeyScreen(onBack = ::pop)
+
+            Page.AddPlace -> com.hmj.twotone.ui.AddPlaceScreen(onBack = ::pop)
 
             is Page.AlarmEdit -> AlarmEditScreen(page.id, onDone = ::pop, onBack = ::pop)
 
@@ -583,6 +608,7 @@ class MainActivity : ComponentActivity() {
                 Section.CLOCK -> Page.Clock
                 Section.BOOKS -> Page.Books
                 Section.NEWS -> Page.News
+                Section.TRAINS -> Page.Trains
             }
         )
     }

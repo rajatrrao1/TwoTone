@@ -40,25 +40,16 @@ class MusicService : Service() {
         }
     }
 
-    /**
-     * When the screen goes off with music playing, put the player on top of the lock
-     * screen, so the power button wakes the phone straight into it.
-     */
-    private val screenOff = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != Intent.ACTION_SCREEN_OFF) return
-            MusicSettings.load(context)
-            if (!MusicSettings.onLockScreen || !Music.showOnHome) return
-            showOverLockScreen()
-        }
-    }
-
     override fun onCreate() {
         super.onCreate()
         instance = this
         val nm = getSystemService(NotificationManager::class.java)
+        // Silent, but not a "low" channel: Android hides low ones from the lock screen.
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Music", NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) }
+            NotificationChannel(CHANNEL, "Music player", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                setShowBadge(false); setSound(null, null); enableVibration(false)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
         )
         session = MediaSession(this, "TwoTone").apply {
             setCallback(object : MediaSession.Callback() {
@@ -73,41 +64,6 @@ class MusicService : Service() {
             isActive = true
         }
         registerReceiver(noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
-        registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF))
-    }
-
-    /**
-     * Puts the player over the lock screen the way alarm clocks do: a silent
-     * "full-screen" notification, which Android lets cover the lock screen. A page
-     * opened directly from the background ends up behind the lock screen instead.
-     */
-    private fun showOverLockScreen() {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(
-            NotificationChannel(LOCK_CHANNEL, "Music on the lock screen", NotificationManager.IMPORTANCE_HIGH).apply {
-                setSound(null, null); enableVibration(false); setShowBadge(false)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            }
-        )
-        val open = PendingIntent.getActivity(
-            this, 9, Intent(this, LockPlayerActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val canFullScreen = Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent()
-        if (canFullScreen) {
-            val n = Notification.Builder(this, LOCK_CHANNEL)
-                .setSmallIcon(R.drawable.ic_stat_music)
-                .setContentTitle(Music.current?.title ?: "music")
-                .setCategory(Notification.CATEGORY_TRANSPORT)
-                .setFullScreenIntent(open, true)
-                .setContentIntent(open)
-                .setAutoCancel(true)
-                .setTimeoutAfter(15_000)
-                .build()
-            nm.notify(LOCK_NOTIFICATION_ID, n)
-        } else if (Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)) {
-            try { open.send() } catch (e: Exception) { }
-        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -172,6 +128,9 @@ class MusicService : Service() {
             .setContentIntent(openAppIntent())
             .setDeleteIntent(serviceIntent(ACTION_STOP, 4))
             .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setShowWhen(false)
+            .setOnlyAlertOnce(true)
+            .setCategory(Notification.CATEGORY_TRANSPORT)
             .setOngoing(Music.isPlaying)
             .addAction(action(R.drawable.ic_previous, "previous", ACTION_PREVIOUS, 1))
             .addAction(
@@ -203,7 +162,6 @@ class MusicService : Service() {
     override fun onDestroy() {
         instance = null
         try { unregisterReceiver(noisy) } catch (e: Exception) { }
-        try { unregisterReceiver(screenOff) } catch (e: Exception) { }
         session.release()
         artLoader.shutdown()
         super.onDestroy()
@@ -227,10 +185,8 @@ class MusicService : Service() {
         Notification.Action.Builder(Icon.createWithResource(this, icon), title, serviceIntent(action, code)).build()
 
     companion object {
-        private const val CHANNEL = "music"
+        private const val CHANNEL = "music_player"
         private const val NOTIFICATION_ID = 41
-        private const val LOCK_CHANNEL = "lockplayer"
-        const val LOCK_NOTIFICATION_ID = 43
         const val ACTION_TOGGLE = "com.hmj.twotone.music.TOGGLE"
         const val ACTION_NEXT = "com.hmj.twotone.music.NEXT"
         const val ACTION_PREVIOUS = "com.hmj.twotone.music.PREVIOUS"

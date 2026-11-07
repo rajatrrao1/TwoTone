@@ -12,7 +12,23 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** One bean from the Coffee app's file, as label → value lines, in a sensible order. */
-data class KohiBean(val id: String, val name: String, val roaster: String, val finished: Boolean, val lines: List<Pair<String, String>>, val updated: Long)
+data class KohiBean(
+    val id: String, val name: String, val roaster: String, val finished: Boolean,
+    val lines: List<Pair<String, String>>, val updated: Long,
+    /** The recipe Coffee keeps for these beans, used to fill in a new brew. */
+    val recipe: Map<String, String> = emptyMap()
+)
+
+/**
+ * One cup, as written to coffee-brews.json:
+ * { "version": 1, "brews": [ { "id", "beanId", "beanName", "date": "2026-11-06",
+ *   "time" (ms), "method", "temp", "grind", "dose", "water", "rating" (0–5), "note" } ] }
+ */
+data class DailyBrew(
+    val id: Long, val beanId: String, val beanName: String, val date: String, val time: Long,
+    val method: String, val temp: String, val grind: String, val dose: String, val water: String,
+    val rating: Int, val note: String
+)
 
 /**
  * Reads your Coffee app's beans from the copy it keeps in its backup folder
@@ -21,6 +37,8 @@ data class KohiBean(val id: String, val name: String, val roaster: String, val f
  */
 object KohiLink {
     private const val FILE = "coffee-beans.json"
+    /** Brews logged from the launcher; Coffee can read the same file. */
+    const val BREWS = "coffee-brews.json"
     const val PACKAGE = "app.kohi"
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("twotone_coffee", Context.MODE_PRIVATE)
@@ -28,7 +46,12 @@ object KohiLink {
     fun linked(ctx: Context) = folder(ctx) != null
 
     fun link(ctx: Context, tree: Uri) {
-        try { ctx.contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { }
+        // Read the beans; write the brews file beside them.
+        try {
+            ctx.contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        } catch (e: Exception) {
+            try { ctx.contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e2: Exception) { }
+        }
         prefs(ctx).edit().putString("kohiFolder", tree.toString()).apply()
     }
 
@@ -87,14 +110,66 @@ object KohiLink {
         val known = ORDER.mapNotNull { (k, label) -> valueText(k, o.opt(k))?.let { label to it } }
         val rest = keys.filter { it !in SKIP && ORDER.none { (k, _) -> k == it } }
             .mapNotNull { k -> valueText(k, o.opt(k))?.let { pretty(k) to it } }
+        val recipe = listOf("method", "temp", "grind", "dose", "water").mapNotNull { k ->
+            o.opt(k)?.takeIf { it != JSONObject.NULL }?.toString()?.takeIf { it.isNotBlank() && it != "0" }?.let { k to it }
+        }.toMap()
         return KohiBean(
             id = o.optString("id"),
             name = o.optString("name").ifBlank { "unnamed beans" },
             roaster = o.optString("roaster"),
             finished = o.optBoolean("finished", false),
             lines = known + rest,
-            updated = o.optLong("updated", o.optLong("added", 0L))
+            updated = o.optLong("updated", o.optLong("added", 0L)),
+            recipe = recipe
         )
+    }
+
+    // ---- daily brews ------------------------------------------------------------
+
+    private fun findChild(ctx: Context, tree: Uri, name: String): Uri? {
+        val treeId = DocumentsContract.getTreeDocumentId(tree)
+        ctx.contentResolver.query(
+            DocumentsContract.buildChildDocumentsUriUsingTree(tree, treeId),
+            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+            null, null, null
+        )?.use { c -> while (c.moveToNext()) if (c.getString(1) == name) return DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0)) }
+        return null
+    }
+
+    /** Every brew logged so far, newest first. Call off the main thread. */
+    fun brews(ctx: Context): List<DailyBrew> {
+        val tree = Uri.parse(folder(ctx) ?: return emptyList())
+        val uri = findChild(ctx, tree, BREWS) ?: return emptyList()
+        val text = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: return emptyList()
+        val arr = try { JSONObject(text).optJSONArray("brews") } catch (e: Exception) { null } ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.map { b ->
+            DailyBrew(
+                b.optLong("id"), b.optString("beanId"), b.optString("beanName"), b.optString("date"), b.optLong("time"),
+                b.optString("method"), b.optString("temp"), b.optString("grind"), b.optString("dose"), b.optString("water"),
+                b.optInt("rating"), b.optString("note")
+            )
+        }.sortedByDescending { it.time }
+    }
+
+    /** Adds a brew (or, with [removeId], takes one out) and writes the file. Call off the main thread. */
+    fun saveBrews(ctx: Context, add: DailyBrew? = null, removeId: Long? = null) {
+        val tree = Uri.parse(folder(ctx) ?: throw IllegalStateException("No folder chosen."))
+        val all = (brews(ctx).filter { it.id != removeId } + listOfNotNull(add)).sortedBy { it.time }
+        val arr = JSONArray()
+        all.forEach { b ->
+            arr.put(
+                JSONObject().put("id", b.id).put("beanId", b.beanId).put("beanName", b.beanName).put("date", b.date).put("time", b.time)
+                    .put("method", b.method).put("temp", b.temp).put("grind", b.grind).put("dose", b.dose).put("water", b.water)
+                    .put("rating", b.rating).put("note", b.note)
+            )
+        }
+        val text = JSONObject().put("version", 1).put("brews", arr).toString(2)
+        val uri = findChild(ctx, tree, BREWS) ?: DocumentsContract.createDocument(
+            ctx.contentResolver, DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree)),
+            "application/json", BREWS
+        ) ?: throw IllegalStateException("The brews file couldn't be made. Choose the folder again (coffee > stop using…).")
+        ctx.contentResolver.openOutputStream(uri, "wt")?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+            ?: throw IllegalStateException("The brews file couldn't be written.")
     }
 
     /** Opens the Coffee app (to add or change beans). */

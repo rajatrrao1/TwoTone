@@ -189,6 +189,8 @@ fun MusicScreen(onBack: () -> Unit, onSettings: () -> Unit) {
                     }) + Playlists.all.map { pl -> MEntry(pl.name, "${pl.trackIds.size}") { push(playlistLevel(pl.id)) } }
                 })
             })
+            add(MEntry("shuffle", if (MusicSettings.shuffle) "on" else "off") { Music.setShuffle(ctx, !MusicSettings.shuffle) })
+            add(MEntry("repeat", MusicSettings.repeat.label) { Music.cycleRepeat(ctx) })
             add(MEntry("settings") { onSettings() })
         }
     }
@@ -238,6 +240,7 @@ fun MusicScreen(onBack: () -> Unit, onSettings: () -> Unit) {
                 SolidRule(thickness = 3.dp)
                 Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp)) {
                     val extras = listOfNotNull(
+                        if (MusicSettings.shuffle) "shuffle" else null,
                         if (MusicSettings.repeat != com.hmj.twotone.music.Repeat.OFF) "repeat ${MusicSettings.repeat.label}" else null,
                         if (Music.sleepAt > 0) "sleep " + java.time.Instant.ofEpochMilli(Music.sleepAt).atZone(java.time.ZoneId.systemDefault()).toLocalTime().withSecond(0).withNano(0) else null
                     ).joinToString(" · ").let { if (it.isEmpty()) "" else " · $it" }
@@ -349,6 +352,16 @@ private fun NowPlaying(scrubbing: Boolean = false, scrubPos: Long = 0L) {
                 BasicText(clock(shownPos), Modifier.weight(1f), style = textStyle(14f), maxLines = 1)
                 BasicText(if (scrubbing) "scrubbing" else if (playing) "playing" else "paused", Modifier.weight(1f), style = textStyle(14f).copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center), maxLines = 1)
                 BasicText("-" + clock((t.durationMs - shownPos).coerceAtLeast(0)), Modifier.weight(1f), style = textStyle(14f).copy(textAlign = androidx.compose.ui.text.style.TextAlign.End), maxLines = 1)
+            }
+            // Shuffle and repeat: tap either word to change it.
+            val ctx = LocalContext.current
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                Box(Modifier.weight(1f).press { Music.setShuffle(ctx, !MusicSettings.shuffle) }.padding(vertical = 4.dp)) {
+                    BasicText("shuffle " + bracket(if (MusicSettings.shuffle) "on" else "off"), style = textStyle(15f), maxLines = 1)
+                }
+                Box(Modifier.weight(1f).press { Music.cycleRepeat(ctx) }.padding(vertical = 4.dp), contentAlignment = Alignment.CenterEnd) {
+                    BasicText("repeat " + bracket(MusicSettings.repeat.label), style = textStyle(15f), maxLines = 1)
+                }
             }
         }
     }

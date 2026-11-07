@@ -25,8 +25,8 @@ object MusicSettings {
         private set
     var repeat by mutableStateOf(Repeat.OFF)
         private set
-    /** Show the player over the lock screen while music plays. */
-    var onLockScreen by mutableStateOf(false)
+    /** Play the queue in a random order. */
+    var shuffle by mutableStateOf(false)
         private set
 
     private var loaded = false
@@ -40,13 +40,13 @@ object MusicSettings {
         haptics = sp.getBoolean("haptics", false)
         folder = sp.getString("folder", null)
         repeat = Repeat.entries.firstOrNull { it.name == sp.getString("repeat", null) } ?: Repeat.OFF
-        onLockScreen = sp.getBoolean("onLockScreen", false)
+        shuffle = sp.getBoolean("shuffle", false)
     }
 
     fun setClickSound(ctx: Context, v: Boolean) { clickSound = v; prefs(ctx).edit().putBoolean("clickSound", v).apply() }
     fun setHaptics(ctx: Context, v: Boolean) { haptics = v; prefs(ctx).edit().putBoolean("haptics", v).apply() }
     fun setFolder(ctx: Context, v: String?) { folder = v; prefs(ctx).edit().putString("folder", v).apply() }
-    fun setOnLockScreen(ctx: Context, v: Boolean) { onLockScreen = v; prefs(ctx).edit().putBoolean("onLockScreen", v).apply() }
+    fun saveShuffle(ctx: Context, v: Boolean) { shuffle = v; prefs(ctx).edit().putBoolean("shuffle", v).apply() }
     fun setRepeat(ctx: Context, v: Repeat) { repeat = v; prefs(ctx).edit().putString("repeat", v.name).apply() }
 
     /** The songs to show, after the folder setting. */

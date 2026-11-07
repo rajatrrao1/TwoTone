@@ -24,8 +24,6 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
-    <!-- Music on the lock screen: lets the player open when the screen goes off -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Voice notes -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
@@ -81,15 +79,6 @@
             android:name=".clock.AlarmRingService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
-
-        <activity
-            android:name=".music.LockPlayerActivity"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:launchMode="singleInstance"
-            android:showWhenLocked="true"
-            android:taskAffinity="com.hmj.twotone.lockplayer"
-            android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".clock.AlarmRingActivity"

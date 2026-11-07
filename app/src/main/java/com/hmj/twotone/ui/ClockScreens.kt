@@ -32,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -69,7 +70,14 @@ private fun duration(ms: Long, tenths: Boolean = false): String {
 
 /** Big time and date, alarms, then timer, stopwatch and the alarm sound. */
 @Composable
-fun ClockScreen(onEditAlarm: (Int) -> Unit, onTimer: () -> Unit, onStopwatch: () -> Unit, onBack: () -> Unit) {
+fun ClockScreen(
+    onEditAlarm: (Int) -> Unit,
+    onTimer: () -> Unit,
+    onStopwatch: () -> Unit,
+    onBack: () -> Unit,
+    onFocus: () -> Unit = {},
+    onAddPlace: () -> Unit = {}
+) {
     val ctx = LocalContext.current
     val is24h = DateFormat.is24HourFormat(ctx)
     val tick = LocalResumeTick.current
@@ -120,7 +128,17 @@ fun ClockScreen(onEditAlarm: (Int) -> Unit, onTimer: () -> Unit, onStopwatch: ()
                     )
                 }
             }
+            add { SectionBar("world", if (AlarmStore.worldZones.isEmpty()) "" else "hold to remove") }
+            AlarmStore.worldZones.forEach { id -> add { WorldRow(id, now, is24h) { AlarmStore.removeZone(ctx, id) } } }
+            add { ListRow("+ add a place", onPress = onAddPlace) }
             add { SectionBar("tools") }
+            add {
+                ListRow("focus", trailing = when {
+                    AlarmStore.focusEndsAt > System.currentTimeMillis() -> if (AlarmStore.focusIsBreak) "break ▸" else "running ▸"
+                    AlarmStore.focusDoneToday > 0 -> "${AlarmStore.focusDoneToday} today ▸"
+                    else -> "▸"
+                }, onPress = onFocus)
+            }
             add { ListRow("timer", trailing = if (timerRunning) "running ▸" else "▸", onPress = onTimer) }
             add { ListRow("stopwatch", trailing = if (Stopwatch.running) "running ▸" else "▸", onPress = onStopwatch) }
             add {
@@ -328,5 +346,131 @@ fun StopwatchScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+
+/** A place's name from its time-zone id: "America/New_York" → "new york". */
+fun placeName(zoneId: String) = zoneId.substringAfterLast('/').replace('_', ' ').lowercase()
+
+/** One place: its name, its time, and how far ahead or behind it is. */
+@Composable
+private fun WorldRow(zoneId: String, now: LocalDateTime, is24h: Boolean, onRemove: () -> Unit) {
+    val zone = try { java.time.ZoneId.of(zoneId) } catch (e: Exception) { return }
+    val here = now.atZone(java.time.ZoneId.systemDefault())
+    val there = here.withZoneSameInstant(zone)
+    val diffMin = (there.offset.totalSeconds - here.offset.totalSeconds) / 60
+    val diff = when {
+        diffMin == 0 -> "same time"
+        diffMin % 60 == 0 -> "%+d h".format(diffMin / 60)
+        else -> "%+d:%02d h".format(diffMin / 60, kotlin.math.abs(diffMin % 60))
+    }
+    val day = when (there.toLocalDate().compareTo(here.toLocalDate())) {
+        0 -> ""
+        1 -> " · tomorrow"
+        else -> " · yesterday"
+    }
+    Row(
+        Modifier.fillMaxWidth().height(rowHeight()).press(onLongPress = onRemove) { }.padding(horizontal = 18.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            BasicText(placeName(zoneId), style = textStyle(18f), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+            BasicText(diff + day, style = textStyle(13f), maxLines = 1)
+        }
+        BasicText(
+            there.format(DateTimeFormatter.ofPattern(if (is24h) "HH:mm" else "h:mm a", Locale.getDefault())).lowercase(),
+            style = textStyle(22f, bold = true), maxLines = 1, softWrap = false
+        )
+    }
+}
+
+/** Pick a place for the world clock by typing part of a city's name. */
+@Composable
+fun AddPlaceScreen(onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val palette = LocalPalette.current
+    var query by rememberSaveable { mutableStateOf("") }
+    val zones = remember {
+        java.time.ZoneId.getAvailableZoneIds().filter { '/' in it && !it.startsWith("Etc/") && !it.startsWith("SystemV/") }
+            .sortedBy { placeName(it) }
+    }
+    val q = query.trim()
+    val found = if (q.isEmpty()) emptyList() else zones.filter { placeName(it).contains(q, true) || it.contains(q, true) }.take(40)
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    PageColumn {
+        PageHeader("add a place", onBack)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            BasicText("city: ", style = textStyle(18f, bold = true), maxLines = 1, softWrap = false)
+            BasicTextField(
+                value = query, onValueChange = { query = it.replace("\n", "") }, singleLine = true,
+                textStyle = textStyle(18f), cursorBrush = SolidColor(palette.ink),
+                modifier = Modifier.weight(1f).focusRequester(focus)
+            )
+        }
+        SolidRule()
+        if (q.isEmpty()) Hint("Type a city: the big city in each time zone is listed (for Mumbai, look for kolkata).")
+        PagedList(found, Modifier.weight(1f), resetKey = q) { id ->
+            ListRow(placeName(id), trailing = id.substringBefore('/').lowercase()) { AlarmStore.addZone(ctx, id); onBack() }
+        }
+    }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+}
+
+/**
+ * Focus: a stretch of work with the phone quiet, then an optional break.
+ * The phone goes to "Do not disturb" (if allowed) or vibrate, and comes back after.
+ */
+@Composable
+fun FocusScreen(onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    LaunchedEffect(Unit) { AlarmStore.load(ctx) }
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val running = AlarmStore.focusEndsAt > nowMs
+    LaunchedEffect(running, com.hmj.twotone.Visible.on) {
+        while (running && com.hmj.twotone.Visible.on) { nowMs = System.currentTimeMillis(); delay(1_000) }
+        nowMs = System.currentTimeMillis()
+    }
+    val dnd = remember(LocalResumeTick.current) { com.hmj.twotone.clock.Quiet.canUseDnd(ctx) }
+
+    PageColumn {
+        PageHeader("focus", onBack)
+        if (running) {
+            Box(Modifier.fillMaxWidth().padding(vertical = 26.dp), contentAlignment = Alignment.Center) {
+                PixelText(duration(AlarmStore.focusEndsAt - nowMs), cell = 10.dp)
+            }
+            BasicText(
+                if (AlarmStore.focusIsBreak) "break" else "focusing" + if (AlarmStore.focusSilence) " · phone quiet" else "",
+                Modifier.fillMaxWidth(), style = textStyle(18f).copy(textAlign = TextAlign.Center), maxLines = 1
+            )
+            Spacer(Modifier.height(14.dp))
+            ListRow("stop", bold = true, trailing = "") { AlarmStore.stopFocus(ctx); nowMs = System.currentTimeMillis() }
+        } else {
+            val p = LocalPalette.current
+            Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                TimeStepper(AlarmStore.focusMinutes.toString(), onUp = { AlarmStore.setFocusMinutes(ctx, (AlarmStore.focusMinutes + 5).coerceAtMost(180)) },
+                    onDown = { AlarmStore.setFocusMinutes(ctx, (AlarmStore.focusMinutes - 5).coerceAtLeast(5)) })
+                Spacer(Modifier.width(24.dp))
+                TimeStepper(AlarmStore.breakMinutes.toString(), onUp = { AlarmStore.setBreakMinutes(ctx, (AlarmStore.breakMinutes + 1).coerceAtMost(60)) },
+                    onDown = { AlarmStore.setBreakMinutes(ctx, (AlarmStore.breakMinutes - 1).coerceAtLeast(1)) })
+            }
+            BasicText("focus minutes · break minutes", Modifier.fillMaxWidth(), style = textStyle(13f).copy(textAlign = TextAlign.Center), maxLines = 1)
+            Spacer(Modifier.height(8.dp))
+            SolidRule()
+            ListRow("start focus", bold = true, trailing = "") { AlarmStore.startFocus(ctx, isBreak = false); nowMs = System.currentTimeMillis() }
+            ListRow("take a break", trailing = "") { AlarmStore.startFocus(ctx, isBreak = true); nowMs = System.currentTimeMillis() }
+            ListRow("quiet the phone", trailing = bracket(if (AlarmStore.focusSilence) (if (dnd) "do not disturb" else "vibrate") else "off")) {
+                AlarmStore.setFocusSilence(ctx, !AlarmStore.focusSilence)
+            }
+            if (AlarmStore.focusSilence && !dnd) {
+                ListRow("allow do not disturb", trailing = "▸") {
+                    try {
+                        ctx.startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    } catch (e: Exception) { }
+                }
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        FooterLine(if (AlarmStore.focusDoneToday == 1) "1 focus done today" else "${AlarmStore.focusDoneToday} focus done today")
     }
 }

@@ -13,6 +13,7 @@ class AlarmReceiver : BroadcastReceiver() {
         AlarmStore.load(context)
         when (id) {
             AlarmStore.TIMER_ID -> AlarmStore.timerFinished(context)
+            AlarmStore.FOCUS_ID -> AlarmStore.focusFinished(context)
             AlarmStore.SNOOZE_ID -> Unit
             else -> AlarmStore.afterRinging(context, id)
         }

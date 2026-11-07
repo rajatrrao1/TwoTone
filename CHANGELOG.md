@@ -1,5 +1,27 @@
 # Changes
 
+## 1.6
+- Clock: a world clock (+ add a place; each shows its time, how far ahead or behind,
+  and "tomorrow" / "yesterday"); hold one to remove it.
+- Focus timer (clock > focus): set focus and break minutes; while you focus the phone
+  goes to Do not disturb (if allowed) or vibrate, and comes back after. Counts today's.
+- Trains (new section): your stations; live NS departures with delays, platform
+  changes, cancellations and what it runs via, updated every minute while you look.
+  Needs your free key from apiportal.ns.nl ("Ns-App").
+- Coffee with your Coffee app: "+ log a brew" (beans from Coffee's list, its recipe
+  filled in, the day set to today or earlier) and "brews by day". Brews are kept in
+  coffee-brews.json beside coffee-beans.json, so the Coffee app can show them too.
+
+## 1.5
+- The lock-screen player is gone again (KompaktOS keeps its lock screen on top). The
+  music notification now shows on the lock screen, like other players'.
+- Shuffle: on now playing (tap "shuffle"), in the music menu and in music settings.
+  The song playing carries on; turning shuffle off puts the queue back in order.
+  Repeat (off / all / one song) is next to it.
+- Notes: in a list, Enter adds the item and leaves the box ready for the next one. In
+  text view, Enter after "- [ ] milk" starts "- [ ] " (also "- " and "1. "); Enter on
+  an empty item ends the list.
+
 ## 1.4.1
 - Music on the lock screen: the player now arrives through a silent full-screen
   notification (as alarm clocks do), so it covers the lock screen and can be used,

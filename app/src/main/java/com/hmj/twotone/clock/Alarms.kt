@@ -53,6 +53,7 @@ val RING_LABELS = listOf("sound and vibration", "vibration only", "sound only")
 object AlarmStore {
     const val TIMER_ID = 900_001
     const val SNOOZE_ID = 900_002
+    const val FOCUS_ID = 900_003
     const val SNOOZE_MINUTES = 10
 
     var alarms by mutableStateOf<List<Alarm>>(emptyList())
@@ -85,6 +86,13 @@ object AlarmStore {
         } catch (e: Exception) { emptyList() }
         timerEndsAt = sp.getLong("timerEndsAt", 0L).takeIf { it > System.currentTimeMillis() } ?: 0L
         timerRing = sp.getInt("timerRing", RING_BOTH)
+        worldZones = sp.getString("worldZones", "").orEmpty().split('|').filter { it.isNotBlank() }
+        focusMinutes = sp.getInt("focusMinutes", 25)
+        breakMinutes = sp.getInt("breakMinutes", 5)
+        focusSilence = sp.getBoolean("focusSilence", true)
+        focusEndsAt = sp.getLong("focusEndsAt", 0L).takeIf { it > System.currentTimeMillis() } ?: 0L
+        focusIsBreak = sp.getBoolean("focusIsBreak", false)
+        focusDoneToday = if (sp.getString("focusDay", "") == java.time.LocalDate.now().toString()) sp.getInt("focusDone", 0) else 0
         soundUri = sp.getString("sound", null)
     }
 
@@ -128,6 +136,76 @@ object AlarmStore {
         prefs(ctx).edit().putLong("timerEndsAt", 0L).apply()
     }
 
+    // ---- world clock ----------------------------------------------------------
+
+    /** Extra places on the clock page, as time-zone ids ("Asia/Kolkata"). */
+    var worldZones by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    fun addZone(ctx: Context, id: String) {
+        if (id in worldZones) return
+        worldZones = worldZones + id
+        prefs(ctx).edit().putString("worldZones", worldZones.joinToString("|")).apply()
+    }
+
+    fun removeZone(ctx: Context, id: String) {
+        worldZones = worldZones - id
+        prefs(ctx).edit().putString("worldZones", worldZones.joinToString("|")).apply()
+    }
+
+    // ---- focus timer ------------------------------------------------------------
+
+    /** When the running focus (or break) ends, or 0. */
+    var focusEndsAt by mutableStateOf(0L)
+        private set
+    /** True while it's a break rather than focus. */
+    var focusIsBreak by mutableStateOf(false)
+        private set
+    var focusMinutes by mutableStateOf(25)
+        private set
+    var breakMinutes by mutableStateOf(5)
+        private set
+    var focusSilence by mutableStateOf(true)
+        private set
+    /** Focus sessions finished today. */
+    var focusDoneToday by mutableStateOf(0)
+        private set
+
+    fun setFocusMinutes(ctx: Context, m: Int) { focusMinutes = m; prefs(ctx).edit().putInt("focusMinutes", m).apply() }
+    fun setBreakMinutes(ctx: Context, m: Int) { breakMinutes = m; prefs(ctx).edit().putInt("breakMinutes", m).apply() }
+    fun setFocusSilence(ctx: Context, v: Boolean) { focusSilence = v; prefs(ctx).edit().putBoolean("focusSilence", v).apply() }
+
+    /** Starts focus (or a break). Focus can quieten the phone until it ends. */
+    fun startFocus(ctx: Context, isBreak: Boolean) {
+        focusIsBreak = isBreak
+        focusEndsAt = System.currentTimeMillis() + (if (isBreak) breakMinutes else focusMinutes) * 60_000L
+        prefs(ctx).edit().putLong("focusEndsAt", focusEndsAt).putBoolean("focusIsBreak", isBreak).apply()
+        if (!isBreak && focusSilence) Quiet.on(ctx)
+        setAt(ctx, FOCUS_ID, focusEndsAt, if (isBreak) "break's over" else "focus done", RING_VIBRATE)
+    }
+
+    fun stopFocus(ctx: Context) {
+        cancel(ctx, FOCUS_ID)
+        focusEndsAt = 0L
+        prefs(ctx).edit().putLong("focusEndsAt", 0L).apply()
+        Quiet.off(ctx)
+    }
+
+    /** Called when the focus alarm rings. */
+    fun focusFinished(ctx: Context) {
+        load(ctx)
+        val sp = prefs(ctx)
+        if (!focusIsBreak) {
+            val today = java.time.LocalDate.now().toString()
+            val n = if (sp.getString("focusDay", "") == today) sp.getInt("focusDone", 0) + 1 else 1
+            sp.edit().putString("focusDay", today).putInt("focusDone", n).apply()
+            focusDoneToday = n
+        }
+        focusEndsAt = 0L
+        sp.edit().putLong("focusEndsAt", 0L).apply()
+        Quiet.off(ctx)
+    }
+
     fun snooze(ctx: Context, label: String, ring: Int) =
         setAt(ctx, SNOOZE_ID, System.currentTimeMillis() + SNOOZE_MINUTES * 60_000L, label, ring)
 
@@ -138,6 +216,7 @@ object AlarmStore {
         load(ctx)
         alarms.forEach { schedule(ctx, it) }
         if (timerEndsAt > System.currentTimeMillis()) setAt(ctx, TIMER_ID, timerEndsAt, "timer", timerRing)
+        if (focusEndsAt > System.currentTimeMillis()) setAt(ctx, FOCUS_ID, focusEndsAt, if (focusIsBreak) "break's over" else "focus done", RING_VIBRATE)
     }
 
     fun schedule(ctx: Context, a: Alarm) {
@@ -217,4 +296,44 @@ object Stopwatch {
     }
     fun lap() { if (running) laps = listOf(elapsed()) + laps }
     fun reset() { startedAt = 0L; banked = 0L; laps = emptyList() }
+}
+
+
+/**
+ * Quietens the phone for focus: "Do not disturb" (priority only) if Two Tone may
+ * set it, otherwise vibrate. Puts back exactly what it changed.
+ */
+object Quiet {
+    private fun sp(ctx: Context) = ctx.getSharedPreferences("twotone_clock", Context.MODE_PRIVATE)
+
+    fun canUseDnd(ctx: Context): Boolean =
+        (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager).isNotificationPolicyAccessGranted
+
+    fun on(ctx: Context) {
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val am = ctx.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        val e = sp(ctx).edit()
+        try {
+            if (nm.isNotificationPolicyAccessGranted) {
+                e.putInt("quietFilter", nm.currentInterruptionFilter)
+                nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY)
+            } else {
+                e.putInt("quietRinger", am.ringerMode)
+                if (am.ringerMode == android.media.AudioManager.RINGER_MODE_NORMAL) am.ringerMode = android.media.AudioManager.RINGER_MODE_VIBRATE
+            }
+        } catch (ex: Exception) { }
+        e.putBoolean("quietOn", true).apply()
+    }
+
+    fun off(ctx: Context) {
+        val s = sp(ctx)
+        if (!s.getBoolean("quietOn", false)) return
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val am = ctx.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        try {
+            if (s.contains("quietFilter") && nm.isNotificationPolicyAccessGranted) nm.setInterruptionFilter(s.getInt("quietFilter", android.app.NotificationManager.INTERRUPTION_FILTER_ALL))
+            if (s.contains("quietRinger")) am.ringerMode = s.getInt("quietRinger", android.media.AudioManager.RINGER_MODE_NORMAL)
+        } catch (ex: Exception) { }
+        s.edit().remove("quietFilter").remove("quietRinger").putBoolean("quietOn", false).apply()
+    }
 }

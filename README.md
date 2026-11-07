@@ -59,3 +59,16 @@ The Android Studio key is at:
 - Windows: `C:\Users\<you>\.android\debug.keystore`
 
 Either key is only for this app. Don't use them for anything you publish.
+
+## coffee-brews.json (for the Coffee app)
+
+Two Tone writes the brews it logs to `coffee-brews.json`, in the same folder as the
+Coffee app's `coffee-beans.json`:
+
+    { "version": 1,
+      "brews": [ { "id": 1762437000000, "beanId": "…", "beanName": "Ethiopia Guji",
+                   "date": "2026-11-06", "time": 1762437000000,
+                   "method": "v60", "temp": "93", "grind": "18", "dose": "15",
+                   "water": "250", "rating": 4, "note": "" } ] }
+
+`beanId` is the bean's `id` from coffee-beans.json; `date` is the day it was brewed.

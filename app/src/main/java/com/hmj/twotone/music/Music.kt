@@ -134,10 +134,42 @@ object Music {
         isPlaying = false
     }
 
+    /** The queue in its own order, kept while shuffle is on so it can be put back. */
+    private var unshuffled: List<Track> = emptyList()
+
     fun play(context: Context, list: List<Track>, start: Int) {
         pendingSeek = 0L
+        unshuffled = list
+        if (MusicSettings.shuffle && list.size > 1) {
+            // The song you chose plays first, the rest follow in a random order.
+            val chosen = list.getOrNull(start)
+            queue = listOfNotNull(chosen) + list.filterIndexed { i, _ -> i != start }.shuffled()
+            startAt(context.applicationContext, 0)
+            return
+        }
         queue = list
         startAt(context.applicationContext, start)
+    }
+
+    /** Shuffle on or off, also for what's queued now; the song that's playing carries on. */
+    fun setShuffle(context: Context, on: Boolean) {
+        MusicSettings.saveShuffle(context, on)
+        val cur = current ?: return
+        if (on) {
+            unshuffled = queue
+            queue = listOf(cur) + queue.filterIndexed { i, _ -> i != index }.shuffled()
+            index = 0
+        } else if (unshuffled.isNotEmpty()) {
+            queue = unshuffled
+            index = unshuffled.indexOfFirst { it.id == cur.id }.coerceAtLeast(0)
+        }
+        save(context.applicationContext)
+    }
+
+    /** Off → all → one song → off. */
+    fun cycleRepeat(context: Context) {
+        val all = Repeat.entries
+        MusicSettings.setRepeat(context, all[(all.indexOf(MusicSettings.repeat) + 1) % all.size])
     }
 
     fun toggle(context: Context) = if (isPlaying) pause() else resume(context)
