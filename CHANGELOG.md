@@ -1,5 +1,15 @@
 # Changes
 
+## 1.7
+- Keyboard: typing in any field on a paged page works again. Opening the keyboard used
+  to re-count the rows, which threw away the box being typed in and closed the keyboard.
+- Coffee: reads the updated Coffee app's beans, including its recipe per brewing method
+  (the chosen method's values fill in a new brew).
+- Trains: plan a trip from one station to another, leaving at or arriving by a time.
+  Results show times with delays, length, changes, the first train and its platform,
+  and how busy it is; tap one to see it leg by leg, with platforms and changes. Recent
+  trips sit at the top of trains for one-tap repeats.
+
 ## 1.6
 - Clock: a world clock (+ add a place; each shows its time, how far ahead or behind,
   and "tomorrow" / "yesterday"); hold one to remove it.

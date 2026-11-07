@@ -105,14 +105,58 @@ object KohiLink {
         }
     }
 
+    /**
+     * Every value in [o], nested ones included, as "path" → text, e.g.
+     * "brew.espresso.dose" → "17". Coffee now keeps a recipe per brewing method.
+     */
+    private fun flatten(o: JSONObject, prefix: String = "", out: MutableMap<String, String> = LinkedHashMap()): Map<String, String> {
+        o.keys().forEach { k ->
+            val v = o.opt(k)
+            val p = if (prefix.isEmpty()) k else "$prefix.$k"
+            when (v) {
+                is JSONObject -> flatten(v, p, out)
+                is JSONArray -> Unit
+                null, JSONObject.NULL -> Unit
+                else -> v.toString().takeIf { it.isNotBlank() && it != "0" && it != "0.0" }?.let { out[p] = it }
+            }
+        }
+        return out
+    }
+
+    /**
+     * The recipe for a new brew: method, temperature, grind, coffee in, water or yield.
+     * Taken from the method Coffee has chosen for these beans if it says, else from the
+     * first values found under those names anywhere in the bean.
+     */
+    private fun recipeOf(o: JSONObject): Map<String, String> {
+        val flat = flatten(o)
+        val method = (flat["method"] ?: flat.entries.firstOrNull { it.key.endsWith(".method") || it.key.endsWith("brewMethod") }?.value).orEmpty()
+        val names = mapOf(
+            "temp" to listOf("temp", "temperature", "waterTemp", "watertemp"),
+            "grind" to listOf("grind", "grindSize"),
+            "dose" to listOf("dose", "coffee", "coffeeIn", "in"),
+            "water" to listOf("water", "yield", "out", "waterOut")
+        )
+        fun find(keys: List<String>): String? {
+            // Prefer the chosen method's own section ("…espresso.dose"), then the top, then anywhere.
+            val m = method.lowercase().replace(" ", "").replace("-", "")
+            return keys.firstNotNullOfOrNull { k ->
+                flat.entries.firstOrNull { m.isNotEmpty() && it.key.lowercase().replace("-", "").contains(m) && it.key.substringAfterLast('.').equals(k, true) }?.value
+            } ?: keys.firstNotNullOfOrNull { k -> flat.entries.firstOrNull { it.key.equals(k, true) }?.value }
+            ?: keys.firstNotNullOfOrNull { k -> flat.entries.firstOrNull { it.key.substringAfterLast('.').equals(k, true) }?.value }
+        }
+        val out = LinkedHashMap<String, String>()
+        if (method.isNotBlank()) out["method"] = method
+        names.forEach { (field, keys) -> find(keys)?.let { out[field] = it } }
+        return out
+    }
+
     private fun toBean(o: JSONObject): KohiBean {
         val keys = o.keys().asSequence().toList()
         val known = ORDER.mapNotNull { (k, label) -> valueText(k, o.opt(k))?.let { label to it } }
         val rest = keys.filter { it !in SKIP && ORDER.none { (k, _) -> k == it } }
             .mapNotNull { k -> valueText(k, o.opt(k))?.let { pretty(k) to it } }
-        val recipe = listOf("method", "temp", "grind", "dose", "water").mapNotNull { k ->
-            o.opt(k)?.takeIf { it != JSONObject.NULL }?.toString()?.takeIf { it.isNotBlank() && it != "0" }?.let { k to it }
-        }.toMap()
+        val recipe = recipeOf(o)
         return KohiBean(
             id = o.optString("id"),
             name = o.optString("name").ifBlank { "unnamed beans" },

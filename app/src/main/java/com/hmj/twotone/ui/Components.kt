@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -171,10 +172,17 @@ fun <T> PagedList(
 ) {
     val rowH = rowHeight(rowSize)
     val footerH = if (indicator == PageIndicator.NUMBERS) 34.dp else 0.dp
+    // While the keyboard is open the page is shorter. Re-counting the rows then would
+    // reflow the page and throw away the box being typed in (closing the keyboard again),
+    // so the count from before the keyboard opened is kept until it closes.
+    val imeOpen = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    var steadyPerPage by remember { mutableIntStateOf(0) }
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val fitsWithoutFooter = max(1, (maxHeight / rowH).toInt())
-        val perPage = if (items.size <= fitsWithoutFooter) fitsWithoutFooter
+        val counted = if (items.size <= fitsWithoutFooter) fitsWithoutFooter
         else max(1, ((maxHeight - footerH) / rowH).toInt())
+        val perPage = if (imeOpen && steadyPerPage > 0) steadyPerPage else counted
+        androidx.compose.runtime.SideEffect { if (!imeOpen) steadyPerPage = counted }
         val pages = max(1, ceil(items.size / perPage.toFloat()).toInt())
 
         var page by remember(resetKey, perPage, showIndex) { mutableIntStateOf(showIndex.coerceAtLeast(0) / perPage) }

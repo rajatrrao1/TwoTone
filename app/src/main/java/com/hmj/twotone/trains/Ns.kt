@@ -29,6 +29,21 @@ data class Departure(
     val delayMinutes: Long get() = java.time.Duration.between(planned, actual).toMinutes()
 }
 
+/** One stop of a leg: where, when (planned and expected) and which platform. */
+data class Stop(val name: String, val planned: OffsetDateTime?, val actual: OffsetDateTime?, val track: String, val trackChanged: Boolean) {
+    val delayMinutes: Long get() = if (planned != null && actual != null) java.time.Duration.between(planned, actual).toMinutes() else 0
+}
+
+/** One train (or walk) within a trip. */
+data class Leg(val from: Stop, val to: Stop, val kind: String, val direction: String, val cancelled: Boolean, val walk: Boolean, val crowd: String, val note: String)
+
+/** One way of getting there. */
+data class Trip(val legs: List<Leg>, val minutes: Int, val transfers: Int, val status: String, val crowd: String) {
+    val departs: Stop get() = legs.first().from
+    val arrives: Stop get() = legs.last().to
+    val cancelled: Boolean get() = status == "CANCELLED" || legs.any { it.cancelled && !it.walk }
+}
+
 /**
  * Live departures from NS (the Dutch railways), through their public API. It needs
  * your own free key from apiportal.ns.nl (subscribe to the "Ns-App" product).
@@ -55,6 +70,7 @@ object Ns {
         favourites = sp.getString("favourites", "").orEmpty().split('\n').filter { it.isNotBlank() }.mapNotNull {
             val p = it.split('\t'); if (p.size >= 3) Station(p[0], p[1], p[2]) else null
         }
+        loadRecent(ctx)
     }
 
     fun setKey(ctx: Context, k: String?) {
@@ -69,9 +85,11 @@ object Ns {
         prefs(ctx).edit().putString("favourites", l.joinToString("\n") { "${it.code}\t${it.name}\t${it.short}" }).apply()
     }
 
-    private fun get(path: String): JSONObject {
+    private fun get(path: String): JSONObject = getAt("$BASE$path")
+
+    private fun getAt(url: String): JSONObject {
         val k = key ?: throw IOException("Add your NS key first.")
-        val c = URL("$BASE$path").openConnection() as HttpURLConnection
+        val c = URL(url).openConnection() as HttpURLConnection
         c.setRequestProperty("Ocp-Apim-Subscription-Key", k)
         c.setRequestProperty("Accept", "application/json")
         c.connectTimeout = 12_000
@@ -96,6 +114,62 @@ object Ns {
             val n = it.optJSONObject("namen")
             Station(it.getString("code"), n?.optString("lang").orEmpty().ifBlank { it.getString("code") }, n?.optString("kort").orEmpty())
         }.sortedBy { it.name }
+    }
+
+    // ---- trips ------------------------------------------------------------------
+
+    /** Recent from → to searches, newest first. */
+    var recentTrips by mutableStateOf<List<Pair<Station, Station>>>(emptyList())
+        private set
+
+    fun loadRecent(ctx: Context) {
+        recentTrips = prefs(ctx).getString("recentTrips", "").orEmpty().split('\n').mapNotNull { line ->
+            val p = line.split('\t'); if (p.size >= 6) Station(p[0], p[1], p[2]) to Station(p[3], p[4], p[5]) else null
+        }
+    }
+
+    fun rememberTrip(ctx: Context, from: Station, to: Station) {
+        recentTrips = (listOf(from to to) + recentTrips.filterNot { it.first.code == from.code && it.second.code == to.code }).take(5)
+        prefs(ctx).edit().putString("recentTrips", recentTrips.joinToString("\n") { (a, b) ->
+            "${a.code}\t${a.name}\t${a.short}\t${b.code}\t${b.name}\t${b.short}"
+        }).apply()
+    }
+
+    private fun stopOf(o: JSONObject?): Stop {
+        fun time(k: String) = o?.optString(k)?.takeIf { it.isNotBlank() }?.let { try { OffsetDateTime.parse(it, TIME) } catch (e: Exception) { null } }
+        val planned = o?.optString("plannedTrack").orEmpty()
+        val actual = o?.optString("actualTrack").orEmpty().ifBlank { planned }
+        return Stop(o?.optString("name").orEmpty(), time("plannedDateTime"), time("actualDateTime") ?: time("plannedDateTime"), actual, actual != planned && planned.isNotBlank())
+    }
+
+    /**
+     * Ways from [from] to [to], leaving at [at] (or arriving by it, with [arriveBy]).
+     * Must be called off the main thread.
+     */
+    fun trips(from: String, to: String, at: OffsetDateTime?, arriveBy: Boolean): List<Trip> {
+        var q = "?fromStation=" + URLEncoder.encode(from, "UTF-8") + "&toStation=" + URLEncoder.encode(to, "UTF-8")
+        if (at != null) q += "&dateTime=" + URLEncoder.encode(at.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME), "UTF-8")
+        if (arriveBy) q += "&searchForArrival=true"
+        val o = getAt("https://gateway.apiportal.ns.nl/reisinformatie-api/api/v3/trips$q")
+        val arr = o.optJSONArray("trips") ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.mapNotNull { t ->
+            val legsArr = t.optJSONArray("legs") ?: return@mapNotNull null
+            val legs = (0 until legsArr.length()).mapNotNull { legsArr.optJSONObject(it) }.map { l ->
+                val product = l.optJSONObject("product")
+                val msgs = l.optJSONArray("messages")
+                Leg(
+                    stopOf(l.optJSONObject("origin")), stopOf(l.optJSONObject("destination")),
+                    product?.optString("shortCategoryName").orEmpty().ifBlank { product?.optString("categoryCode").orEmpty() },
+                    l.optString("direction"),
+                    l.optBoolean("cancelled", false),
+                    l.optString("travelType") == "WALK" || product?.optString("type") == "WALK",
+                    l.optString("crowdForecast"),
+                    (0 until (msgs?.length() ?: 0)).mapNotNull { msgs?.optJSONObject(it)?.optString("text")?.ifBlank { null } ?: msgs?.optJSONObject(it)?.optString("message") }.firstOrNull().orEmpty()
+                )
+            }
+            if (legs.isEmpty()) null
+            else Trip(legs, t.optInt("actualDurationInMinutes", t.optInt("plannedDurationInMinutes")), t.optInt("transfers"), t.optString("status"), t.optString("crowdForecast"))
+        }
     }
 
     fun departures(stationCode: String): List<Departure> {

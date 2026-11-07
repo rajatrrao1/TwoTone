@@ -133,6 +133,10 @@ sealed interface Page {
     data object Trains : Page
     data object AddStation : Page
     data object NsKey : Page
+    data object PlanTrip : Page
+    data class PickTripStation(val which: String) : Page
+    data object TripResults : Page
+    data object TripDetail : Page
     data class Departures(val code: String, val name: String, val short: String) : Page
     data object AddPlace : Page
     data object Stopwatch : Page
@@ -157,6 +161,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var coffee: CoffeeStore
     /** Beans read from a shop page, shown for checking before they are saved. */
     private var beanDraft: Bean? = null
+    /** The trip opened from the results, for its detail page. */
+    private var chosenTrip: com.hmj.twotone.trains.Trip? = null
 
     private val stack = mutableStateListOf<Page>(Page.Home)
     private val apps = mutableStateOf<List<AppEntry>>(emptyList())
@@ -418,8 +424,34 @@ class MainActivity : ComponentActivity() {
                 onStation = { push(Page.Departures(it.code, it.name, it.short)) },
                 onAdd = { push(Page.AddStation) },
                 onKey = { push(Page.NsKey) },
+                onBack = ::pop,
+                onPlan = { push(Page.PlanTrip) },
+                onTrips = { push(Page.TripResults) }
+            )
+
+            Page.PlanTrip -> com.hmj.twotone.ui.PlanTripScreen(
+                onPickFrom = { push(Page.PickTripStation("from")) },
+                onPickTo = { push(Page.PickTripStation("to")) },
+                onSearch = { push(Page.TripResults) },
                 onBack = ::pop
             )
+
+            is Page.PickTripStation -> com.hmj.twotone.ui.AddStationScreen(
+                onBack = ::pop,
+                title = if (page.which == "from") "from" else "to",
+                onPick = { s ->
+                    if (page.which == "from") com.hmj.twotone.ui.TripDraft.from = s else com.hmj.twotone.ui.TripDraft.to = s
+                    pop()
+                }
+            )
+
+            Page.TripResults -> com.hmj.twotone.ui.TripResultsScreen(onTrip = { chosenTrip = it; push(Page.TripDetail) }, onBack = ::pop)
+
+            Page.TripDetail -> {
+                val t = chosenTrip
+                if (t != null) com.hmj.twotone.ui.TripDetailScreen(t, onBack = ::pop)
+                else com.hmj.twotone.ui.PageColumn { com.hmj.twotone.ui.PageHeader("trip", ::pop); com.hmj.twotone.ui.Hint("Search again to see this trip.") }
+            }
 
             is Page.Departures -> com.hmj.twotone.ui.DeparturesScreen(com.hmj.twotone.trains.Station(page.code, page.name, page.short), onBack = ::pop)
 
